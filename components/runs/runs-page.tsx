@@ -64,7 +64,7 @@ export function RunsPage() {
             >
               <option value="all">All</option>
               <option value="running">Running</option>
-              <option value="success">Success</option>
+              <option value="completed">Completed</option>
               <option value="failed">Failed</option>
               <option value="queued">Queued</option>
             </select>

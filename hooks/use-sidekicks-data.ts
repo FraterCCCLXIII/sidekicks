@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  createAgent,
   getAgents,
   getArtifacts,
   getDashboardData,
@@ -10,7 +11,7 @@ import {
   getRuns,
   getSettings,
   getTemplates
-} from "@/lib/mock-data";
+} from "@/lib/api/control-plane";
 
 export function useDashboardData() {
   return useQuery({
@@ -60,3 +61,5 @@ export function useSettings() {
     queryFn: getSettings
   });
 }
+
+export { createAgent };

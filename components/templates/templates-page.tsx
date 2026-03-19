@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useTemplates } from "@/hooks/use-sidekicks-data";
-import { type Template } from "@/lib/mock-data";
+import { type TemplateListItemView } from "@/lib/server/presenters";
 
 const templateIcons: Record<string, typeof FileSearch> = {
   "Research Agent": FileSearch,
@@ -19,7 +19,7 @@ const templateIcons: Record<string, typeof FileSearch> = {
   "Support Triage": Blocks
 };
 
-function TemplateCard({ template }: { template: Template }) {
+function TemplateCard({ template }: { template: TemplateListItemView }) {
   const Icon = templateIcons[template.name] ?? FileSearch;
 
   return (

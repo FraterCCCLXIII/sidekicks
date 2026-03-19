@@ -95,7 +95,17 @@ export function RunDetailPage({ runId }: { runId: string }) {
                     <div className="font-medium">{step.title}</div>
                     <div className="mt-1 text-sm text-muted-foreground">{step.detail}</div>
                   </div>
-                  <Badge tone={statusTone(step.state === "done" ? "success" : step.state === "active" ? "running" : "queued")}>
+                  <Badge
+                    tone={statusTone(
+                      step.state === "done"
+                        ? "completed"
+                        : step.state === "active"
+                          ? "running"
+                          : step.state === "failed"
+                            ? "failed"
+                            : "queued"
+                    )}
+                  >
                     {step.state}
                   </Badge>
                 </div>

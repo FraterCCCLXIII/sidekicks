@@ -1,0 +1,233 @@
+import {
+  type AgentInstance,
+  type AgentTemplate,
+  type Artifact,
+  type ControlPlaneState,
+  type Run,
+  type SettingsData
+} from "@/lib/domain/types";
+
+export type DashboardView = {
+  stats: {
+    activeAgents: number;
+    jobsRunning: number;
+    successRate: string;
+  };
+  runs: RunListItemView[];
+  templates: TemplateListItemView[];
+};
+
+export type TemplateListItemView = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  tags: string[];
+  model: string;
+  tools: AgentTemplate["supportedTools"];
+  runtimeType: AgentTemplate["runtimeType"];
+};
+
+export type AgentListItemView = {
+  id: string;
+  name: string;
+  template: string;
+  status: AgentInstance["status"];
+  jobs: number;
+  region: string;
+  lastRunAt: string | null;
+};
+
+export type RunListItemView = {
+  id: string;
+  agent: string;
+  template: string;
+  status: Run["status"];
+  startedAt: string;
+  duration: string;
+};
+
+export type RunDetailView = {
+  id: string;
+  agent: string;
+  template: string;
+  status: Run["status"];
+  startedAt: string;
+  duration: string;
+  model: string;
+  tools: AgentInstance["tools"];
+  logs: string[];
+  steps: { id: string; title: string; state: "done" | "active" | "pending" | "failed"; detail: string }[];
+  output: {
+    title: string;
+    summary: string;
+    highlights: string[];
+    links: { label: string; href: string }[];
+  };
+};
+
+export type ArtifactListItemView = {
+  id: string;
+  name: string;
+  size: string;
+  updatedAt: string;
+  kind: string;
+};
+
+function formatRelativeTime(dateString: string | null) {
+  if (!dateString) {
+    return "--";
+  }
+
+  const diffMs = new Date(dateString).getTime() - Date.now();
+  const diffMinutes = Math.round(diffMs / 60_000);
+  const absMinutes = Math.abs(diffMinutes);
+
+  if (absMinutes < 60) {
+    return `${absMinutes} min ago`;
+  }
+
+  const absHours = Math.round(absMinutes / 60);
+
+  if (absHours < 24) {
+    return `${absHours} hr ago`;
+  }
+
+  const absDays = Math.round(absHours / 24);
+
+  return `${absDays} day ago`;
+}
+
+function formatDuration(durationMs: number | null) {
+  if (!durationMs) {
+    return "--";
+  }
+
+  const totalSeconds = Math.round(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatBytes(size: number) {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${size} B`;
+}
+
+function agentTemplateName(state: ControlPlaneState, agentId: string) {
+  return state.agents.find((agent) => agent.id === agentId)?.templateName ?? "Unknown Template";
+}
+
+export function presentTemplate(template: AgentTemplate): TemplateListItemView {
+  return {
+    id: template.id,
+    slug: template.slug,
+    name: template.name,
+    description: template.description,
+    category: template.category,
+    tags: template.tags,
+    model: template.defaultModel,
+    tools: template.supportedTools,
+    runtimeType: template.runtimeType
+  };
+}
+
+export function presentAgent(agent: AgentInstance): AgentListItemView {
+  return {
+    id: agent.id,
+    name: agent.name,
+    template: agent.templateName,
+    status: agent.status,
+    jobs: agent.jobsCount,
+    region: agent.region,
+    lastRunAt: agent.lastRunAt
+  };
+}
+
+export function presentRun(state: ControlPlaneState, run: Run): RunListItemView {
+  return {
+    id: run.id,
+    agent: run.agentName,
+    template: agentTemplateName(state, run.agentId),
+    status: run.status,
+    startedAt: formatRelativeTime(run.startedAt ?? run.createdAt),
+    duration: formatDuration(run.durationMs)
+  };
+}
+
+export function presentRunDetail(state: ControlPlaneState, run: Run): RunDetailView {
+  const agent = state.agents.find((item) => item.id === run.agentId);
+
+  return {
+    id: run.id,
+    agent: run.agentName,
+    template: agentTemplateName(state, run.agentId),
+    status: run.status,
+    startedAt: formatRelativeTime(run.startedAt ?? run.createdAt),
+    duration: formatDuration(run.durationMs),
+    model: agent?.model ?? state.settings.defaultModel,
+    tools: agent?.tools ?? [],
+    logs: run.logs.map((entry) => `> ${entry.message}`),
+    steps: run.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      state:
+        step.state === "completed"
+          ? "done"
+          : step.state === "active"
+            ? "active"
+            : step.state === "failed"
+              ? "failed"
+              : "pending",
+      detail: step.detail
+    })),
+    output: run.output ?? {
+      title: "Pending output",
+      summary: "This run has not produced an output bundle yet.",
+      highlights: ["Execution is still waiting to complete."],
+      links: []
+    }
+  };
+}
+
+export function presentArtifact(artifact: Artifact): ArtifactListItemView {
+  return {
+    id: artifact.id,
+    name: artifact.name,
+    size: formatBytes(artifact.size),
+    updatedAt: formatRelativeTime(artifact.createdAt),
+    kind: artifact.type.charAt(0).toUpperCase() + artifact.type.slice(1)
+  };
+}
+
+export function presentDashboard(state: ControlPlaneState): DashboardView {
+  const totalFinishedRuns = state.runs.filter((run) => run.status === "completed" || run.status === "failed");
+  const completedRuns = totalFinishedRuns.filter((run) => run.status === "completed");
+  const successRate =
+    totalFinishedRuns.length === 0
+      ? "0%"
+      : `${((completedRuns.length / totalFinishedRuns.length) * 100).toFixed(1)}%`;
+
+  return {
+    stats: {
+      activeAgents: state.agents.filter((agent) => agent.status === "running").length,
+      jobsRunning: state.jobs.filter((job) => job.status === "running" || job.status === "queued").length,
+      successRate
+    },
+    runs: state.runs.slice(0, 4).map((run) => presentRun(state, run)),
+    templates: state.templates.filter((template) => template.featured).slice(0, 3).map(presentTemplate)
+  };
+}
+
+export function presentSettings(settings: SettingsData) {
+  return settings;
+}

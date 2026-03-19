@@ -1,9 +1,10 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Rocket } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { createAgent } from "@/hooks/use-sidekicks-data";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,16 +17,41 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { deployAgent, type Template } from "@/lib/mock-data";
+import { type AgentMemoryType, type AgentTool } from "@/lib/domain/types";
+import { type TemplateListItemView } from "@/lib/server/presenters";
 
-const toolOptions = ["Web", "Files", "Shell", "Cloud", "Browser"];
+const toolOptions: { label: string; value: AgentTool }[] = [
+  { label: "Web", value: "web" },
+  { label: "Browser", value: "browser" },
+  { label: "Files", value: "files" },
+  { label: "Code", value: "code" },
+  { label: "Filesystem", value: "filesystem" },
+  { label: "Python", value: "python" },
+  { label: "Charts", value: "charts" },
+  { label: "API", value: "api" },
+  { label: "Webhooks", value: "webhooks" }
+];
+
+const memoryOptions: AgentMemoryType[] = ["redis", "postgres", "in-memory"];
+
+function labelize(value: string) {
+  if (value === "api") {
+    return "API";
+  }
+
+  if (value === "filesystem") {
+    return "Filesystem";
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 export function DeployAgentDialog({
   template,
   triggerLabel = "Deploy Agent",
   onDeployed
 }: {
-  template?: Template;
+  template?: TemplateListItemView;
   triggerLabel?: string;
   onDeployed?: (name: string) => void;
 }) {
@@ -33,11 +59,12 @@ export function DeployAgentDialog({
     () => template?.name.toLowerCase().replace(/\s+/g, "-") ?? "research-agent",
     [template]
   );
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(`${baseName}-1`);
   const [model, setModel] = useState(template?.model ?? "GPT-4o");
-  const [memory, setMemory] = useState("Redis");
-  const [tools, setTools] = useState<string[]>(template?.tools ?? ["Web", "Files"]);
+  const [memory, setMemory] = useState<AgentMemoryType>("redis");
+  const [tools, setTools] = useState<AgentTool[]>(template?.tools ?? ["web", "files"]);
   const [envVars, setEnvVars] = useState([
     { key: "REPORT_MODE", value: "verbose" },
     { key: "CACHE_TTL", value: "300" }
@@ -46,18 +73,22 @@ export function DeployAgentDialog({
   useEffect(() => {
     setName(`${baseName}-1`);
     setModel(template?.model ?? "GPT-4o");
-    setTools(template?.tools ?? ["Web", "Files"]);
+    setTools(template?.tools ?? ["web", "files"]);
   }, [baseName, template]);
 
   const mutation = useMutation({
-    mutationFn: deployAgent,
-    onSuccess: (result) => {
+    mutationFn: createAgent,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["agents"] })
+      ]);
       onDeployed?.(result.name);
       setOpen(false);
     }
   });
 
-  function toggleTool(tool: string) {
+  function toggleTool(tool: AgentTool) {
     setTools((current) =>
       current.includes(tool) ? current.filter((item) => item !== tool) : [...current, tool]
     );
@@ -75,7 +106,7 @@ export function DeployAgentDialog({
         <DialogHeader>
           <DialogTitle>Deploy: {template?.name ?? "Research Agent"}</DialogTitle>
           <DialogDescription>
-            Launch an agent instance with production defaults and inspect its runs immediately.
+            Launch an agent instance with production defaults and queue-ready runtime settings.
           </DialogDescription>
         </DialogHeader>
 
@@ -96,6 +127,7 @@ export function DeployAgentDialog({
                 <option>GPT-4o</option>
                 <option>GPT-4.1</option>
                 <option>GPT-4o mini</option>
+                <option>Claude 3.5 Sonnet</option>
               </select>
             </label>
           </div>
@@ -104,20 +136,20 @@ export function DeployAgentDialog({
             <div className="text-sm text-muted-foreground">Tools</div>
             <div className="flex flex-wrap gap-2">
               {toolOptions.map((tool) => {
-                const selected = tools.includes(tool);
+                const selected = tools.includes(tool.value);
 
                 return (
                   <button
-                    key={tool}
+                    key={tool.value}
                     type="button"
-                    onClick={() => toggleTool(tool)}
+                    onClick={() => toggleTool(tool.value)}
                     className={`rounded-md border px-3 py-2 text-sm transition ${
                       selected
                         ? "border-white/[0.16] bg-white/[0.08] text-foreground"
                         : "border-white/10 bg-white/[0.03] text-muted-foreground"
                     }`}
                   >
-                    {tool}
+                    {tool.label}
                   </button>
                 );
               })}
@@ -129,13 +161,27 @@ export function DeployAgentDialog({
             <select
               className="flex h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm outline-none focus:border-white/20"
               value={memory}
-              onChange={(event) => setMemory(event.target.value)}
+              onChange={(event) => setMemory(event.target.value as AgentMemoryType)}
             >
-              <option>Redis</option>
-              <option>Postgres</option>
-              <option>In-memory</option>
+              {memoryOptions.map((option) => (
+                <option key={option} value={option}>
+                  {labelize(option)}
+                </option>
+              ))}
             </select>
           </label>
+
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Execution plane</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Runtime type: {template?.runtimeType ?? "node"} • Queue target prepared for worker dispatch
+                </div>
+              </div>
+              <Badge tone="muted">{template?.runtimeType ?? "node"}</Badge>
+            </div>
+          </div>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -178,14 +224,16 @@ export function DeployAgentDialog({
           <Button
             onClick={() =>
               mutation.mutate({
-                name,
+                templateId: template?.id ?? "tpl_research",
+                agentName: name,
                 model,
                 tools,
                 memory,
+                runtimeType: template?.runtimeType ?? "node",
                 envVars
               })
             }
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || !name.trim()}
           >
             {mutation.isPending ? (
               <>

@@ -1,21 +1,26 @@
-import { type AgentStatus, type RunStatus } from "@/lib/mock-data";
+import { type AgentInstanceStatus, type RunStatus } from "@/lib/domain/types";
 
-export function statusTone(status: RunStatus | AgentStatus) {
+export function statusTone(status: RunStatus | AgentInstanceStatus) {
   switch (status) {
     case "running":
       return "info" as const;
-    case "success":
+    case "completed":
       return "success" as const;
     case "queued":
+    case "paused":
       return "warning" as const;
     case "failed":
-    case "degraded":
+    case "error":
       return "danger" as const;
     default:
       return "muted" as const;
   }
 }
 
-export function statusLabel(status: RunStatus | AgentStatus) {
+export function statusLabel(status: RunStatus | AgentInstanceStatus) {
+  if (status === "completed") {
+    return "Completed";
+  }
+
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
