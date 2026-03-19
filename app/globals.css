@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 7% 7%;
+  --foreground: 0 0% 93%;
+  --card: 220 6% 10%;
+  --card-foreground: 0 0% 93%;
+  --popover: 220 6% 9%;
+  --popover-foreground: 0 0% 93%;
+  --primary: 0 0% 88%;
+  --primary-foreground: 220 7% 9%;
+  --secondary: 220 5% 14%;
+  --secondary-foreground: 0 0% 85%;
+  --muted: 220 4% 13%;
+  --muted-foreground: 0 0% 61%;
+  --accent: 0 0% 74%;
+  --accent-foreground: 220 7% 9%;
+  --border: 220 5% 18%;
+  --input: 220 5% 15%;
+  --ring: 0 0% 72%;
+  --success: 0 0% 78%;
+  --warning: 0 0% 66%;
+  --danger: 0 0% 58%;
+}
+
+* {
+  @apply border-border;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply min-h-screen bg-background text-foreground antialiased;
+  font-family: "IBM Plex Sans", "SF Pro Text", "Segoe UI", sans-serif;
+  background-image:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.05), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.035), transparent 30%),
+    linear-gradient(180deg, rgba(14, 14, 16, 0.96), rgba(8, 8, 9, 1));
+}
+
+code,
+pre,
+.font-mono {
+  font-family: "IBM Plex Mono", "SFMono-Regular", "SF Mono", Consolas, monospace;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-white/10 bg-card/[0.88] shadow-glow backdrop-blur-xl;
+  }
+
+  .panel-muted {
+    @apply rounded-xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md;
+  }
+}
