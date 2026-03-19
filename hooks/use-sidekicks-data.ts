@@ -7,6 +7,7 @@ import {
   getAgents,
   getArtifacts,
   getDashboardData,
+  getTemplate,
   getRunDetail,
   getRuns,
   getSettings,
@@ -24,6 +25,13 @@ export function useTemplates() {
   return useQuery({
     queryKey: ["templates"],
     queryFn: getTemplates
+  });
+}
+
+export function useTemplate(templateId: string) {
+  return useQuery({
+    queryKey: ["templates", templateId],
+    queryFn: () => getTemplate(templateId)
   });
 }
 

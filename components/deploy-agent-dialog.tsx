@@ -111,6 +111,15 @@ export function DeployAgentDialog({
         </DialogHeader>
 
         <div className="space-y-5 px-6 pb-2">
+          {template ? (
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3">
+              <div className="font-mono text-sm">{template.packageName}</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                v{template.packageVersion} • image {template.runtimeImage}
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2 text-sm">
               <span className="text-muted-foreground">Name</span>

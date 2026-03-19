@@ -153,8 +153,11 @@ export function DashboardPage() {
                   <div>
                     <div className="font-medium">{template.name}</div>
                     <div className="mt-1 text-sm text-muted-foreground">{template.description}</div>
+                    <div className="mt-2 font-mono text-xs text-foreground/70">
+                      {template.packageName} v{template.packageVersion}
+                    </div>
                   </div>
-                  <Badge tone="muted">{template.model}</Badge>
+                  <Badge tone="muted">{template.runtimeType}</Badge>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {template.tags.map((tag) => (
@@ -165,7 +168,10 @@ export function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <DeployAgentDialog template={template} triggerLabel="Deploy" />
-                  <Link href="/templates" className="text-sm font-medium text-foreground/80 hover:text-foreground">
+                  <Link
+                    href={`/templates/${template.slug}`}
+                    className="text-sm font-medium text-foreground/80 hover:text-foreground"
+                  >
                     View
                   </Link>
                 </div>

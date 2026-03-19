@@ -22,11 +22,23 @@ export type TemplateListItemView = {
   slug: string;
   name: string;
   description: string;
+  kind: AgentTemplate["kind"];
   category: string;
   tags: string[];
+  packageName: string;
+  packageVersion: string;
+  sourceRepo: string;
+  runtimeImage: string;
+  isolationMode: AgentTemplate["isolationMode"];
   model: string;
   tools: AgentTemplate["supportedTools"];
   runtimeType: AgentTemplate["runtimeType"];
+};
+
+export type TemplateDetailView = TemplateListItemView & {
+  deploymentConfig: AgentTemplate["deploymentConfig"];
+  exampleUseCases: string[];
+  configSchema: AgentTemplate["configSchema"];
 };
 
 export type AgentListItemView = {
@@ -133,11 +145,26 @@ export function presentTemplate(template: AgentTemplate): TemplateListItemView {
     slug: template.slug,
     name: template.name,
     description: template.description,
+    kind: template.kind,
     category: template.category,
     tags: template.tags,
+    packageName: template.packageName,
+    packageVersion: template.packageVersion,
+    sourceRepo: template.sourceRepo,
+    runtimeImage: template.runtimeImage,
+    isolationMode: template.isolationMode,
     model: template.defaultModel,
     tools: template.supportedTools,
     runtimeType: template.runtimeType
+  };
+}
+
+export function presentTemplateDetail(template: AgentTemplate): TemplateDetailView {
+  return {
+    ...presentTemplate(template),
+    deploymentConfig: template.deploymentConfig,
+    exampleUseCases: template.exampleUseCases,
+    configSchema: template.configSchema
   };
 }
 

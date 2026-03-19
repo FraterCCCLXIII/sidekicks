@@ -1,4 +1,5 @@
 export type RuntimeType = "node" | "python";
+export type TemplateKind = "runtime" | "preset";
 export type AgentTool =
   | "web"
   | "browser"
@@ -28,8 +29,14 @@ export type AgentTemplate = {
   name: string;
   description: string;
   icon: string;
+  kind: TemplateKind;
   category: string;
   tags: string[];
+  packageName: string;
+  packageVersion: string;
+  sourceRepo: string;
+  runtimeImage: string;
+  isolationMode: "process" | "container";
   supportedTools: AgentTool[];
   defaultModel: string;
   defaultMemory: AgentMemoryType;
@@ -38,9 +45,13 @@ export type AgentTemplate = {
     recommendedConcurrency: number;
     artifactStrategy: string;
     workerQueue: string;
+    startupCommand: string;
   };
   featured: boolean;
   exampleUseCases: string[];
+  configSchema: {
+    env: { key: string; required: boolean; description: string }[];
+  };
 };
 
 export type AgentInstance = {

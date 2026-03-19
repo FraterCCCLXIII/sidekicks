@@ -6,6 +6,7 @@ import {
   type DashboardView,
   type RunDetailView,
   type RunListItemView,
+  type TemplateDetailView,
   type TemplateListItemView
 } from "@/lib/server/presenters";
 
@@ -15,6 +16,10 @@ export function getDashboardData() {
 
 export function getTemplates() {
   return fetchJson<TemplateListItemView[]>("/api/templates");
+}
+
+export function getTemplate(templateId: string) {
+  return fetchJson<TemplateDetailView>(`/api/templates/${templateId}`);
 }
 
 export function getAgents() {

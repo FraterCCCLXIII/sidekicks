@@ -1,6 +1,6 @@
 "use client";
 
-import { Blocks, Code2, FileSearch, Rocket, Search, WandSparkles } from "lucide-react";
+import { Bot, Box, Code2, FileSearch, Rocket, Search, WandSparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -12,11 +12,15 @@ import { useTemplates } from "@/hooks/use-sidekicks-data";
 import { type TemplateListItemView } from "@/lib/server/presenters";
 
 const templateIcons: Record<string, typeof FileSearch> = {
-  "Research Agent": FileSearch,
-  "Code Builder": Code2,
-  "SEO Writer": WandSparkles,
-  "Deploy Agent": Rocket,
-  "Support Triage": Blocks
+  OpenClaw: FileSearch,
+  NanoClaw: Bot,
+  AppClaw: Code2,
+  MarketingClaw: WandSparkles,
+  DataClaw: Box,
+  Research: FileSearch,
+  Development: Code2,
+  Marketing: WandSparkles,
+  Operations: Rocket
 };
 
 function TemplateCard({ template }: { template: TemplateListItemView }) {
@@ -29,12 +33,18 @@ function TemplateCard({ template }: { template: TemplateListItemView }) {
           <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
             <Icon className="h-5 w-5 text-foreground" />
           </div>
-          <Badge tone="muted">{template.category}</Badge>
+          <Badge tone="muted">{template.kind === "runtime" ? "Runtime" : template.category}</Badge>
         </div>
         <CardTitle className="mt-4">{template.name}</CardTitle>
         <CardDescription>{template.description}</CardDescription>
       </CardHeader>
       <CardContent className="mt-auto space-y-5">
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-sm">
+          <div className="font-mono text-foreground">{template.packageName}</div>
+          <div className="mt-1 text-muted-foreground">
+            v{template.packageVersion} • {template.runtimeType} • {template.isolationMode}
+          </div>
+        </div>
         <div className="flex flex-wrap gap-2">
           {template.tags.map((tag) => (
             <Badge key={tag} tone="muted">
@@ -44,7 +54,10 @@ function TemplateCard({ template }: { template: TemplateListItemView }) {
         </div>
         <div className="flex items-center gap-3">
           <DeployAgentDialog template={template} triggerLabel="Deploy" />
-          <Link href="/agents" className="text-sm font-medium text-foreground/80 hover:text-foreground">
+          <Link
+            href={`/templates/${template.slug}`}
+            className="text-sm font-medium text-foreground/80 hover:text-foreground"
+          >
             View
           </Link>
         </div>
@@ -63,7 +76,8 @@ export function TemplatesPage() {
     }
 
     return data.filter((template) => {
-      const haystack = `${template.name} ${template.description} ${template.tags.join(" ")}`.toLowerCase();
+      const haystack =
+        `${template.name} ${template.description} ${template.packageName} ${template.runtimeImage} ${template.tags.join(" ")}`.toLowerCase();
       return haystack.includes(search.toLowerCase());
     });
   }, [data, search]);
@@ -75,7 +89,7 @@ export function TemplatesPage() {
           <Badge>Templates</Badge>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">Templates</h1>
           <p className="mt-2 max-w-2xl text-muted-foreground">
-            Browse deployable agent blueprints, inspect capabilities, and launch new instances in a few clicks.
+            Browse deployable runtimes and presets, inspect package metadata, and launch agent instances in a few clicks.
           </p>
         </div>
       </div>
@@ -84,7 +98,7 @@ export function TemplatesPage() {
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-11"
-          placeholder="Search templates by name, tools, or use case"
+          placeholder="Search templates by package, runtime image, tools, or use case"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />

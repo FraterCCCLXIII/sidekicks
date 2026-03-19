@@ -19,13 +19,19 @@ function isoHoursAgo(hours: number) {
 
 const templates: AgentTemplate[] = [
   {
-    id: "tpl_research",
-    slug: "research-agent",
-    name: "Research Agent",
-    description: "Searches the web, gathers information, summarizes findings, and produces structured reports.",
+    id: "tpl_openclaw",
+    slug: "openclaw",
+    name: "OpenClaw",
+    description: "Full-featured general-purpose agent runtime for web research, file handling, and report production.",
     icon: "FileSearch",
+    kind: "runtime",
     category: "Research",
-    tags: ["Web", "Browser", "Files"],
+    tags: ["Web", "Browser", "Files", "General"],
+    packageName: "@sidekicks/openclaw",
+    packageVersion: "0.3.1",
+    sourceRepo: "github.com/FraterCCCLXIII/openclaw",
+    runtimeImage: "ghcr.io/fratercccxxxiii/openclaw:0.3.1",
+    isolationMode: "container",
     supportedTools: ["web", "browser", "files"],
     defaultModel: "GPT-4o",
     defaultMemory: "redis",
@@ -33,19 +39,64 @@ const templates: AgentTemplate[] = [
     deploymentConfig: {
       recommendedConcurrency: 4,
       artifactStrategy: "report-bundle",
-      workerQueue: "node:research"
+      workerQueue: "node:openclaw",
+      startupCommand: "node /app/worker.js"
     },
     featured: true,
-    exampleUseCases: ["Competitive brief", "Market map", "Source-backed memo"]
+    exampleUseCases: ["Competitive brief", "Market map", "Source-backed memo"],
+    configSchema: {
+      env: [
+        { key: "BROWSER_ENABLED", required: false, description: "Enable browser-assisted retrieval." },
+        { key: "SOURCE_LIMIT", required: false, description: "Maximum number of sources per run." }
+      ]
+    }
   },
   {
-    id: "tpl_app_builder",
-    slug: "app-builder-agent",
-    name: "App Builder Agent",
-    description: "Builds small web apps, prototypes, landing pages, and utility tools from prompts.",
+    id: "tpl_nanoclaw",
+    slug: "nanoclaw",
+    name: "NanoClaw",
+    description: "Lightweight fast-start runtime for simple agents, operational flows, and low-latency tasks.",
+    icon: "Bot",
+    kind: "runtime",
+    category: "Operations",
+    tags: ["Fast", "Node", "Low-overhead"],
+    packageName: "@sidekicks/nanoclaw",
+    packageVersion: "0.1.8",
+    sourceRepo: "github.com/FraterCCCLXIII/nanoclaw",
+    runtimeImage: "ghcr.io/fratercccxxxiii/nanoclaw:0.1.8",
+    isolationMode: "process",
+    supportedTools: ["api", "webhooks", "files"],
+    defaultModel: "GPT-4o mini",
+    defaultMemory: "redis",
+    runtimeType: "node",
+    deploymentConfig: {
+      recommendedConcurrency: 8,
+      artifactStrategy: "action-log",
+      workerQueue: "node:nanoclaw",
+      startupCommand: "node /app/runtime.js"
+    },
+    featured: true,
+    exampleUseCases: ["Webhook relay", "Ops sync", "Scheduled workflow"],
+    configSchema: {
+      env: [
+        { key: "WEBHOOK_SECRET", required: false, description: "Shared secret for inbound webhook validation." }
+      ]
+    }
+  },
+  {
+    id: "tpl_appclaw",
+    slug: "appclaw",
+    name: "AppClaw",
+    description: "Runtime tuned for small app generation, code scaffolding, and artifact packaging.",
     icon: "Code2",
+    kind: "runtime",
     category: "Development",
-    tags: ["Code", "Filesystem", "Files"],
+    tags: ["Code", "Filesystem", "Builder"],
+    packageName: "@sidekicks/appclaw",
+    packageVersion: "0.2.4",
+    sourceRepo: "github.com/FraterCCCLXIII/appclaw",
+    runtimeImage: "ghcr.io/fratercccxxxiii/appclaw:0.2.4",
+    isolationMode: "container",
     supportedTools: ["code", "filesystem", "files"],
     defaultModel: "GPT-4.1",
     defaultMemory: "redis",
@@ -53,19 +104,31 @@ const templates: AgentTemplate[] = [
     deploymentConfig: {
       recommendedConcurrency: 2,
       artifactStrategy: "app-build",
-      workerQueue: "node:builder"
+      workerQueue: "node:appclaw",
+      startupCommand: "node /app/build-worker.js"
     },
     featured: true,
-    exampleUseCases: ["Landing page", "Internal tool", "Demo app"]
+    exampleUseCases: ["Landing page", "Internal tool", "Demo app"],
+    configSchema: {
+      env: [
+        { key: "TARGET_STACK", required: false, description: "Preferred output stack for generated apps." }
+      ]
+    }
   },
   {
-    id: "tpl_content",
-    slug: "content-agent",
-    name: "Content Agent",
-    description: "Creates blog posts, landing page copy, marketing drafts, and SEO-oriented content.",
+    id: "tpl_marketing_claw",
+    slug: "marketing-claw",
+    name: "MarketingClaw",
+    description: "Content-focused runtime for SEO pages, launch copy, and multi-format written outputs.",
     icon: "WandSparkles",
+    kind: "runtime",
     category: "Marketing",
     tags: ["Web", "Files", "SEO"],
+    packageName: "@sidekicks/marketing-claw",
+    packageVersion: "0.1.3",
+    sourceRepo: "github.com/FraterCCCLXIII/marketing-claw",
+    runtimeImage: "ghcr.io/fratercccxxxiii/marketing-claw:0.1.3",
+    isolationMode: "process",
     supportedTools: ["web", "files"],
     defaultModel: "GPT-4o mini",
     defaultMemory: "redis",
@@ -73,19 +136,31 @@ const templates: AgentTemplate[] = [
     deploymentConfig: {
       recommendedConcurrency: 4,
       artifactStrategy: "content-package",
-      workerQueue: "node:content"
+      workerQueue: "node:marketing",
+      startupCommand: "node /app/content-worker.js"
     },
     featured: false,
-    exampleUseCases: ["Launch copy", "Blog outline", "SEO refresh"]
+    exampleUseCases: ["Launch copy", "Blog outline", "SEO refresh"],
+    configSchema: {
+      env: [
+        { key: "BRAND_TONE", required: false, description: "Preferred voice for generated content." }
+      ]
+    }
   },
   {
-    id: "tpl_data_analyst",
-    slug: "data-analyst-agent",
-    name: "Data Analyst Agent",
-    description: "Analyzes datasets and uploaded files, produces summaries, charts, and insights.",
+    id: "tpl_dataclaw",
+    slug: "dataclaw",
+    name: "DataClaw",
+    description: "Python-backed runtime for dataset inspection, chart generation, and analytical reporting.",
     icon: "ChartColumn",
+    kind: "runtime",
     category: "Analytics",
     tags: ["Files", "Python", "Charts"],
+    packageName: "@sidekicks/dataclaw",
+    packageVersion: "0.4.0",
+    sourceRepo: "github.com/FraterCCCLXIII/dataclaw",
+    runtimeImage: "ghcr.io/fratercccxxxiii/dataclaw:0.4.0",
+    isolationMode: "container",
     supportedTools: ["files", "python", "charts"],
     defaultModel: "Claude 3.5 Sonnet",
     defaultMemory: "postgres",
@@ -93,30 +168,17 @@ const templates: AgentTemplate[] = [
     deploymentConfig: {
       recommendedConcurrency: 2,
       artifactStrategy: "analysis-bundle",
-      workerQueue: "python:analytics"
+      workerQueue: "python:dataclaw",
+      startupCommand: "python -m worker.main"
     },
     featured: true,
-    exampleUseCases: ["CSV analysis", "KPI review", "Report with charts"]
-  },
-  {
-    id: "tpl_automation",
-    slug: "automation-agent",
-    name: "Automation Agent",
-    description: "Performs workflow-like actions, API tasks, and repeatable operational jobs.",
-    icon: "Workflow",
-    category: "Operations",
-    tags: ["API", "Webhooks", "Files"],
-    supportedTools: ["api", "webhooks", "files"],
-    defaultModel: "GPT-4o",
-    defaultMemory: "redis",
-    runtimeType: "node",
-    deploymentConfig: {
-      recommendedConcurrency: 6,
-      artifactStrategy: "action-log",
-      workerQueue: "node:ops"
-    },
-    featured: false,
-    exampleUseCases: ["Webhook relay", "Ops sync", "Scheduled workflow"]
+    exampleUseCases: ["CSV analysis", "KPI review", "Report with charts"],
+    configSchema: {
+      env: [
+        { key: "CHART_THEME", required: false, description: "Chart rendering theme." },
+        { key: "PYTHON_ENTRYPOINT", required: false, description: "Override default analysis entrypoint." }
+      ]
+    }
   }
 ];
 
@@ -124,8 +186,8 @@ const agents: AgentInstance[] = [
   {
     id: "agent_research_1",
     name: "research-1",
-    templateId: "tpl_research",
-    templateName: "Research Agent",
+    templateId: "tpl_openclaw",
+    templateName: "OpenClaw",
     status: "running",
     model: "GPT-4o",
     tools: ["web", "browser", "files"],
@@ -144,8 +206,8 @@ const agents: AgentInstance[] = [
   {
     id: "agent_builder_1",
     name: "builder-1",
-    templateId: "tpl_app_builder",
-    templateName: "App Builder Agent",
+    templateId: "tpl_appclaw",
+    templateName: "AppClaw",
     status: "idle",
     model: "GPT-4.1",
     tools: ["code", "filesystem", "files"],
@@ -161,8 +223,8 @@ const agents: AgentInstance[] = [
   {
     id: "agent_content_1",
     name: "content-west",
-    templateId: "tpl_content",
-    templateName: "Content Agent",
+    templateId: "tpl_marketing_claw",
+    templateName: "MarketingClaw",
     status: "paused",
     model: "GPT-4o mini",
     tools: ["web", "files"],
@@ -178,8 +240,8 @@ const agents: AgentInstance[] = [
   {
     id: "agent_data_1",
     name: "analyst-datasets",
-    templateId: "tpl_data_analyst",
-    templateName: "Data Analyst Agent",
+    templateId: "tpl_dataclaw",
+    templateName: "DataClaw",
     status: "running",
     model: "Claude 3.5 Sonnet",
     tools: ["files", "python", "charts"],
@@ -195,8 +257,8 @@ const agents: AgentInstance[] = [
   {
     id: "agent_ops_1",
     name: "ops-automator",
-    templateId: "tpl_automation",
-    templateName: "Automation Agent",
+    templateId: "tpl_nanoclaw",
+    templateName: "NanoClaw",
     status: "error",
     model: "GPT-4o",
     tools: ["api", "webhooks", "files"],
@@ -212,8 +274,8 @@ const agents: AgentInstance[] = [
   {
     id: "agent_research_2",
     name: "research-eu",
-    templateId: "tpl_research",
-    templateName: "Research Agent",
+    templateId: "tpl_openclaw",
+    templateName: "OpenClaw",
     status: "idle",
     model: "GPT-4o",
     tools: ["web", "browser", "files"],

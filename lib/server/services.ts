@@ -1,5 +1,5 @@
 import { type DeployRequest } from "@/lib/domain/types";
-import { presentAgent, presentArtifact, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate } from "@/lib/server/presenters";
+import { presentAgent, presentArtifact, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
 import { createAgentInstance, createJobRecord, listState } from "@/lib/server/store";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
@@ -14,7 +14,7 @@ export async function listTemplates() {
 
 export async function getTemplate(templateId: string) {
   const template = listState().templates.find((item) => item.id === templateId || item.slug === templateId);
-  return wait(template ? presentTemplate(template) : null);
+  return wait(template ? presentTemplateDetail(template) : null);
 }
 
 export async function listAgents() {
