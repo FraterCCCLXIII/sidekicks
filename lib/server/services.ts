@@ -1,6 +1,6 @@
 import { type DeployRequest } from "@/lib/domain/types";
 import { presentAgent, presentAgentDetail, presentArtifact, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createJobAndRun, listState } from "@/lib/server/store";
+import { createAgentInstance, createJobAndRun, listState } from "@/lib/server/backend";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -9,35 +9,37 @@ function wait<T>(value: T, delay = 120): Promise<T> {
 }
 
 export async function listTemplates() {
-  return wait(listState().templates.map(presentTemplate));
+  const state = await listState();
+  return wait(state.templates.map(presentTemplate));
 }
 
 export async function getTemplate(templateId: string) {
-  const template = listState().templates.find((item) => item.id === templateId || item.slug === templateId);
+  const template = (await listState()).templates.find((item) => item.id === templateId || item.slug === templateId);
   return wait(template ? presentTemplateDetail(template) : null);
 }
 
 export async function listAgents() {
-  return wait(listState().agents.map(presentAgent));
+  const state = await listState();
+  return wait(state.agents.map(presentAgent));
 }
 
 export async function getAgent(agentId: string) {
-  const state = listState();
+  const state = await listState();
   const agent = state.agents.find((item) => item.id === agentId);
   return wait(agent ? presentAgentDetail(state, agent) : null);
 }
 
 export async function getAgentListItem(agentId: string) {
-  const agent = listState().agents.find((item) => item.id === agentId);
+  const agent = (await listState()).agents.find((item) => item.id === agentId);
   return wait(agent ? presentAgent(agent) : null);
 }
 
 export async function createAgent(input: DeployRequest) {
-  return wait(presentAgent(createAgentInstance(input)), 220);
+  return wait(presentAgent(await createAgentInstance(input)), 220);
 }
 
 export async function listJobs() {
-  return wait(listState().jobs);
+  return wait((await listState()).jobs);
 }
 
 export async function createJob(input: {
@@ -50,8 +52,8 @@ export async function createJob(input: {
     params?: Record<string, string>;
   };
 }) {
-  const state = listState();
-  const { job, run } = createJobAndRun(input);
+  const { job, run } = await createJobAndRun(input);
+  const state = await listState();
 
   return wait(
     {
@@ -63,24 +65,30 @@ export async function createJob(input: {
 }
 
 export async function listRuns() {
-  const state = listState();
+  const state = await listState();
   return wait(state.runs.map((run) => presentRun(state, run)));
 }
 
 export async function getRun(runId: string) {
-  const state = listState();
+  const state = await listState();
   const run = state.runs.find((item) => item.id === runId);
   return wait(run ? presentRunDetail(state, run) : null);
 }
 
 export async function listArtifacts() {
-  return wait(listState().artifacts.map(presentArtifact));
+  const state = await listState();
+  return wait(state.artifacts.map(presentArtifact));
+}
+
+export async function getArtifactById(artifactId: string) {
+  const artifact = (await listState()).artifacts.find((item) => item.id === artifactId);
+  return wait(artifact ?? null);
 }
 
 export async function getDashboard() {
-  return wait(presentDashboard(listState()));
+  return wait(presentDashboard(await listState()));
 }
 
 export async function getSettings() {
-  return wait(presentSettings(listState().settings));
+  return wait(presentSettings((await listState()).settings));
 }

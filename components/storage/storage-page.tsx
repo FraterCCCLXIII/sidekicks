@@ -2,6 +2,7 @@
 
 import { Download, Rocket } from "lucide-react";
 import Link from "next/link";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,9 @@ import { useArtifacts } from "@/hooks/use-sidekicks-data";
 
 export function StoragePage() {
   const { data } = useArtifacts();
+  const handleDownload = useCallback((downloadUrl: string) => {
+    window.open(downloadUrl, "_blank", "noopener,noreferrer");
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -45,7 +49,7 @@ export function StoragePage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <Button variant="outline">
+                <Button variant="outline" onClick={() => handleDownload(artifact.downloadUrl)}>
                   <Download className="h-4 w-4" />
                   Download
                 </Button>

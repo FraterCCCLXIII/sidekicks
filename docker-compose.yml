@@ -1,0 +1,82 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.example
+    environment:
+      SIDEKICKS_BACKEND: postgres
+      DATABASE_URL: postgresql://sidekicks:sidekicks@postgres:5432/sidekicks
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: sidekicks-artifacts
+      CONTROL_PLANE_ROLE: control-node
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env.example
+    environment:
+      SIDEKICKS_BACKEND: postgres
+      DATABASE_URL: postgresql://sidekicks:sidekicks@postgres:5432/sidekicks
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: sidekicks-artifacts
+      CONTROL_PLANE_URL: http://web:3000
+      WORKER_QUEUE: sidekicks-runs
+      WORKER_RUNTIME: node
+    depends_on:
+      - postgres
+      - redis
+      - minio
+      - web
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sidekicks
+      POSTGRES_USER: sidekicks
+      POSTGRES_PASSWORD: sidekicks
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: sidekicks
+      MINIO_ROOT_PASSWORD: sidekickspassword
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

@@ -97,6 +97,7 @@ export type ArtifactListItemView = {
   kind: string;
   runId: string;
   agentId: string;
+  downloadUrl: string;
 };
 
 function formatRelativeTime(dateString: string | null) {
@@ -262,7 +263,8 @@ export function presentArtifact(artifact: Artifact): ArtifactListItemView {
     updatedAt: formatRelativeTime(artifact.createdAt),
     kind: artifact.type.charAt(0).toUpperCase() + artifact.type.slice(1),
     runId: artifact.runId,
-    agentId: artifact.agentId
+    agentId: artifact.agentId,
+    downloadUrl: artifact.downloadUrl
   };
 }
 

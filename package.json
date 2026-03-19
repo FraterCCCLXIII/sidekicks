@@ -5,21 +5,27 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "worker": "node worker/index.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.821.0",
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-tabs": "^1.1.1",
     "@tanstack/react-query": "^5.59.0",
+    "bullmq": "^5.56.4",
     "clsx": "^2.1.1",
+    "ioredis": "^5.4.1",
     "lucide-react": "^0.453.0",
     "next": "^15.0.2",
+    "pg": "^8.13.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
     "@types/node": "^22.8.1",
+    "@types/pg": "^8.11.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
