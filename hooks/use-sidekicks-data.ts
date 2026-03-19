@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   createAgent,
+  createJob,
+  getAgent,
   getAgents,
   getArtifacts,
   getDashboardData,
@@ -17,7 +19,8 @@ import {
 export function useDashboardData() {
   return useQuery({
     queryKey: ["dashboard"],
-    queryFn: getDashboardData
+    queryFn: getDashboardData,
+    refetchInterval: 2000
   });
 }
 
@@ -38,28 +41,40 @@ export function useTemplate(templateId: string) {
 export function useAgents() {
   return useQuery({
     queryKey: ["agents"],
-    queryFn: getAgents
+    queryFn: getAgents,
+    refetchInterval: 2000
+  });
+}
+
+export function useAgent(agentId: string) {
+  return useQuery({
+    queryKey: ["agents", agentId],
+    queryFn: () => getAgent(agentId),
+    refetchInterval: 2000
   });
 }
 
 export function useRuns() {
   return useQuery({
     queryKey: ["runs"],
-    queryFn: getRuns
+    queryFn: getRuns,
+    refetchInterval: 2000
   });
 }
 
 export function useRunDetail(runId: string) {
   return useQuery({
     queryKey: ["runs", runId],
-    queryFn: () => getRunDetail(runId)
+    queryFn: () => getRunDetail(runId),
+    refetchInterval: 2000
   });
 }
 
 export function useArtifacts() {
   return useQuery({
     queryKey: ["artifacts"],
-    queryFn: getArtifacts
+    queryFn: getArtifacts,
+    refetchInterval: 2000
   });
 }
 
@@ -70,4 +85,4 @@ export function useSettings() {
   });
 }
 
-export { createAgent };
+export { createAgent, createJob };

@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, Rocket } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,12 @@ export function StoragePage() {
                 <div className="font-medium">{artifact.name}</div>
                 <div className="mt-1 text-sm text-muted-foreground">
                   {artifact.kind} • {artifact.size} • updated {artifact.updatedAt}
+                </div>
+                <div className="mt-2 text-sm text-foreground/70">
+                  Run{" "}
+                  <Link href={`/runs/${artifact.runId}`} className="hover:text-foreground">
+                    {artifact.runId}
+                  </Link>
                 </div>
               </div>
               <div className="flex items-center gap-3">

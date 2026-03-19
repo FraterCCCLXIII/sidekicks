@@ -51,7 +51,7 @@ export function AgentsPage() {
                     <TableCell className="text-muted-foreground">{agent.region}</TableCell>
                     <TableCell className="text-right">
                       <Link
-                        href={`/runs?agent=${agent.name}`}
+                        href={`/agents/${agent.id}`}
                         className="text-sm font-medium text-foreground/80 hover:text-foreground"
                       >
                         View

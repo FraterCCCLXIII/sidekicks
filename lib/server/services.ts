@@ -1,6 +1,6 @@
 import { type DeployRequest } from "@/lib/domain/types";
-import { presentAgent, presentArtifact, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createJobRecord, listState } from "@/lib/server/store";
+import { presentAgent, presentAgentDetail, presentArtifact, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
+import { createAgentInstance, createJobAndRun, listState } from "@/lib/server/store";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -22,6 +22,12 @@ export async function listAgents() {
 }
 
 export async function getAgent(agentId: string) {
+  const state = listState();
+  const agent = state.agents.find((item) => item.id === agentId);
+  return wait(agent ? presentAgentDetail(state, agent) : null);
+}
+
+export async function getAgentListItem(agentId: string) {
   const agent = listState().agents.find((item) => item.id === agentId);
   return wait(agent ? presentAgent(agent) : null);
 }
@@ -44,7 +50,16 @@ export async function createJob(input: {
     params?: Record<string, string>;
   };
 }) {
-  return wait(createJobRecord(input), 180);
+  const state = listState();
+  const { job, run } = createJobAndRun(input);
+
+  return wait(
+    {
+      job,
+      run: presentRun(state, run)
+    },
+    180
+  );
 }
 
 export async function listRuns() {

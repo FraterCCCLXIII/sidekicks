@@ -1,6 +1,7 @@
 import { type DeployRequest, type SettingsData } from "@/lib/domain/types";
 import { fetchJson } from "@/lib/api/client";
 import {
+  type AgentDetailView,
   type AgentListItemView,
   type ArtifactListItemView,
   type DashboardView,
@@ -26,6 +27,10 @@ export function getAgents() {
   return fetchJson<AgentListItemView[]>("/api/agents");
 }
 
+export function getAgent(agentId: string) {
+  return fetchJson<AgentDetailView>(`/api/agents/${agentId}`);
+}
+
 export function createAgent(input: DeployRequest) {
   return fetchJson<AgentListItemView>("/api/agents", {
     method: "POST",
@@ -35,6 +40,22 @@ export function createAgent(input: DeployRequest) {
 
 export function getRuns() {
   return fetchJson<RunListItemView[]>("/api/runs");
+}
+
+export function createJob(input: {
+  agentId: string;
+  agentName: string;
+  title: string;
+  input: {
+    prompt: string;
+    files?: string[];
+    params?: Record<string, string>;
+  };
+}) {
+  return fetchJson<{ job: { id: string }; run: RunListItemView }>("/api/jobs", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
 }
 
 export function getRunDetail(runId: string) {

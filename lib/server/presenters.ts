@@ -51,6 +51,16 @@ export type AgentListItemView = {
   lastRunAt: string | null;
 };
 
+export type AgentDetailView = AgentListItemView & {
+  model: string;
+  memory: AgentInstance["memory"];
+  runtimeType: AgentInstance["runtimeType"];
+  tools: AgentInstance["tools"];
+  envVars: AgentInstance["envVars"];
+  createdAt: string;
+  recentRuns: RunListItemView[];
+};
+
 export type RunListItemView = {
   id: string;
   agent: string;
@@ -85,6 +95,8 @@ export type ArtifactListItemView = {
   size: string;
   updatedAt: string;
   kind: string;
+  runId: string;
+  agentId: string;
 };
 
 function formatRelativeTime(dateString: string | null) {
@@ -180,6 +192,22 @@ export function presentAgent(agent: AgentInstance): AgentListItemView {
   };
 }
 
+export function presentAgentDetail(state: ControlPlaneState, agent: AgentInstance): AgentDetailView {
+  return {
+    ...presentAgent(agent),
+    model: agent.model,
+    memory: agent.memory,
+    runtimeType: agent.runtimeType,
+    tools: agent.tools,
+    envVars: agent.envVars,
+    createdAt: formatRelativeTime(agent.createdAt),
+    recentRuns: state.runs
+      .filter((run) => run.agentId === agent.id)
+      .slice(0, 5)
+      .map((run) => presentRun(state, run))
+  };
+}
+
 export function presentRun(state: ControlPlaneState, run: Run): RunListItemView {
   return {
     id: run.id,
@@ -232,7 +260,9 @@ export function presentArtifact(artifact: Artifact): ArtifactListItemView {
     name: artifact.name,
     size: formatBytes(artifact.size),
     updatedAt: formatRelativeTime(artifact.createdAt),
-    kind: artifact.type.charAt(0).toUpperCase() + artifact.type.slice(1)
+    kind: artifact.type.charAt(0).toUpperCase() + artifact.type.slice(1),
+    runId: artifact.runId,
+    agentId: artifact.agentId
   };
 }
 
