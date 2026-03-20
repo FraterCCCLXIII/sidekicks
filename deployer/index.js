@@ -165,6 +165,86 @@ async function writeRenderedFiles(container, files) {
   }
 }
 
+async function readRuntimeFile(container, path) {
+  const exec = await container.exec({
+    Cmd: ["sh", "-lc", `cat \"${path.replaceAll('"', '\\"')}\"`],
+    AttachStdout: true,
+    AttachStderr: true
+  });
+  const stream = await exec.start({});
+  const chunks = [];
+
+  await new Promise((resolve, reject) => {
+    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on("end", resolve);
+    stream.on("error", reject);
+  });
+
+  const result = await exec.inspect();
+
+  if (result.ExitCode !== 0) {
+    return null;
+  }
+
+  const output = Buffer.concat(chunks);
+
+  // docker exec multiplexes stdout/stderr frames with an 8-byte header.
+  if (output.length >= 8) {
+    let offset = 0;
+    const payloads = [];
+
+    while (offset + 8 <= output.length) {
+      const size = output.readUInt32BE(offset + 4);
+      const start = offset + 8;
+      const end = start + size;
+
+      if (end > output.length) {
+        break;
+      }
+
+      payloads.push(output.subarray(start, end));
+      offset = end;
+    }
+
+    if (payloads.length > 0) {
+      return Buffer.concat(payloads).toString("utf8");
+    }
+  }
+
+  return output.toString("utf8");
+}
+
+async function extractOpenClawRuntimeAuth(container, renderedLaunch) {
+  const configPath = renderedLaunch?.metadata?.configPath;
+
+  if (!configPath) {
+    log("runtime auth extraction skipped", { reason: "missing-config-path" });
+    return null;
+  }
+
+  const content = await readRuntimeFile(container, configPath);
+
+  if (!content) {
+    log("runtime auth extraction failed", { reason: "empty-config-content", configPath });
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(content);
+    const token = parsed?.gateway?.auth?.token;
+
+    log("runtime auth extraction result", {
+      configPath,
+      hasToken: Boolean(token)
+    });
+
+    return token ? { token } : null;
+  } catch {
+    log("runtime auth extraction failed", { reason: "invalid-config-json", configPath });
+    return null;
+  }
+}
+
 async function createNativeRuntimeContainer(deployment, agentId) {
   const name = containerNameForDeployment(deployment.id);
 
@@ -295,7 +375,8 @@ async function markDeploymentStatus(deploymentId, values) {
             container_id = $3,
             endpoint = $4,
             updated_at = $5::timestamptz,
-            last_health_at = $6::timestamptz
+            last_health_at = $6::timestamptz,
+            runtime_auth = COALESCE($7::jsonb, runtime_auth)
         WHERE id = $1
       `,
       [
@@ -304,7 +385,8 @@ async function markDeploymentStatus(deploymentId, values) {
         values.containerId ?? null,
         values.endpoint ?? null,
         values.updatedAt,
-        values.lastHealthAt ?? null
+        values.lastHealthAt ?? null,
+        values.runtimeAuth ? JSON.stringify(values.runtimeAuth) : null
       ]
     );
   });
@@ -368,13 +450,23 @@ async function deployRuntime(request) {
       ? await waitForUpstreamOpenClaw(started.endpoint)
       : await waitForHealth(started.endpoint);
   const now = new Date().toISOString();
+  const runtimeAuth =
+    healthy && deployment.runtime_adapter === "openclaw-upstream"
+      ? await extractOpenClawRuntimeAuth(docker.getContainer(started.containerId), parseJson(deployment.rendered_launch))
+      : null;
 
   await markDeploymentStatus(request.deploymentId, {
     status: healthy ? "healthy" : "failed",
     containerId: started.containerId,
     endpoint: started.endpoint,
     updatedAt: now,
-    lastHealthAt: healthy ? now : null
+    lastHealthAt: healthy ? now : null,
+    runtimeAuth
+  });
+
+  log("deployment auth persisted", {
+    deploymentId: request.deploymentId,
+    hasRuntimeAuth: Boolean(runtimeAuth?.token)
   });
 
   log("deployment reconciled", {

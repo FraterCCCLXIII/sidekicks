@@ -197,6 +197,7 @@ function mapDeployment(row: DatabaseRow): AgentDeployment {
     runtimeSource: row.runtime_source as AgentDeployment["runtimeSource"],
     status: row.status as AgentDeployment["status"],
     renderedLaunch: row.rendered_launch ? parseJson<AgentDeployment["renderedLaunch"]>(row.rendered_launch) : null,
+    runtimeAuth: row.runtime_auth ? parseJson<AgentDeployment["runtimeAuth"]>(row.runtime_auth) : null,
     createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
     updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
     lastHealthAt: toIsoString(row.last_health_at)
@@ -225,6 +226,25 @@ function mapRuntime(row: DatabaseRow): WorkerRuntime {
   };
 }
 
+async function sendOpenClawUpstreamChat(options: {
+  endpoint: string;
+  token: string;
+  content: string;
+  agentName: string;
+}) {
+  const response = await fetch(`${options.endpoint}/health`, {
+    headers: {
+      Authorization: `Bearer ${options.token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenClaw upstream health probe failed with status ${response.status}`);
+  }
+
+  return `OpenClaw upstream gateway for ${options.agentName} is healthy and authenticated. Direct conversational control is not wired yet, but the real upstream runtime is live and token-authenticated.`;
+}
+
 function buildInitialSteps(): RunStep[] {
   return [
     { id: createId("step"), title: "Queue run", state: "completed", detail: "Run accepted by control plane." },
@@ -249,6 +269,7 @@ function buildDefaultDeployment(agent: AgentInstance, template: AgentTemplate, n
     runtimeSource: isDedicatedRuntime || isUpstreamOpenClaw ? "container" : template.runtimeType === "node" ? "local-service" : "container",
     status: isDedicatedRuntime || isUpstreamOpenClaw ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
     renderedLaunch: null,
+    runtimeAuth: null,
     createdAt: now,
     updatedAt: now,
     lastHealthAt: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? now : null
@@ -357,9 +378,9 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, runtime_auth, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::timestamptz, $13::timestamptz, $14::timestamptz
         )
       `,
       [
@@ -373,6 +394,7 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
         deployment.runtimeSource,
         deployment.status,
         deployment.renderedLaunch ? toJson(deployment.renderedLaunch) : null,
+        deployment.runtimeAuth ? toJson(deployment.runtimeAuth) : null,
         deployment.createdAt,
         deployment.updatedAt,
         deployment.lastHealthAt
@@ -540,9 +562,9 @@ async function backfillDeployments(client: PoolClient) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, runtime_auth, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::timestamptz, $13::timestamptz, $14::timestamptz
         )
       `,
       [
@@ -556,6 +578,7 @@ async function backfillDeployments(client: PoolClient) {
         deployment.runtimeSource,
         deployment.status,
         deployment.renderedLaunch ? toJson(deployment.renderedLaunch) : null,
+        deployment.runtimeAuth ? toJson(deployment.runtimeAuth) : null,
         deployment.createdAt,
         deployment.updatedAt,
         deployment.lastHealthAt
@@ -673,6 +696,7 @@ export async function ensureDatabaseReady() {
           runtime_source text NOT NULL,
           status text NOT NULL,
           rendered_launch jsonb,
+          runtime_auth jsonb,
           created_at timestamptz NOT NULL,
           updated_at timestamptz NOT NULL,
           last_health_at timestamptz
@@ -702,6 +726,9 @@ export async function ensureDatabaseReady() {
 
         ALTER TABLE deployments
         ADD COLUMN IF NOT EXISTS rendered_launch jsonb;
+
+        ALTER TABLE deployments
+        ADD COLUMN IF NOT EXISTS runtime_auth jsonb;
 
         ALTER TABLE deployments
         ADD COLUMN IF NOT EXISTS container_id text;
@@ -879,9 +906,9 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, runtime_auth, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::timestamptz, $13::timestamptz, $14::timestamptz
         )
       `,
       [
@@ -895,6 +922,7 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
         deployment.runtimeSource,
         deployment.status,
         deployment.renderedLaunch ? toJson(deployment.renderedLaunch) : null,
+        deployment.runtimeAuth ? toJson(deployment.runtimeAuth) : null,
         deployment.createdAt,
         deployment.updatedAt,
         deployment.lastHealthAt
@@ -1124,7 +1152,14 @@ export async function createPostgresChatExchange(agentId: string, content: strin
 
     let assistantContent = `No deployment is available for ${agent.name}.`;
 
-    if (deployment?.endpoint && deployment.status !== "failed" && deployment.status !== "stopped") {
+    if (deployment?.runtimeAdapter === "openclaw-upstream" && deployment.endpoint && deployment.runtimeAuth?.token) {
+      assistantContent = await sendOpenClawUpstreamChat({
+        endpoint: deployment.endpoint,
+        token: deployment.runtimeAuth.token,
+        content: normalizedContent,
+        agentName: agent.name
+      });
+    } else if (deployment?.endpoint && deployment.status !== "failed" && deployment.status !== "stopped") {
       const response = await fetch(`${deployment.endpoint}/chat`, {
         method: "POST",
         headers: {

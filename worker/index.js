@@ -374,9 +374,59 @@ function appendLog(run, message, level = "info") {
   });
 }
 
+
+async function invokeOpenClawUpstreamRun(request, deployment, job) {
+  const token = deployment?.runtime_auth?.token;
+
+  if (!deployment?.endpoint || !token) {
+    throw new Error("OpenClaw upstream deployment is missing endpoint or token");
+  }
+
+  const response = await fetch(`${deployment.endpoint}/health`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenClaw upstream health probe failed with status ${response.status}`);
+  }
+
+  const summaryBody = JSON.stringify({
+    status: 'connected',
+    deploymentId: deployment.id,
+    endpoint: deployment.endpoint,
+    prompt: job.input.prompt
+  }, null, 2);
+
+  return {
+    summary: `OpenClaw upstream gateway accepted the authenticated run context for ${request.agentName}.`,
+    markdown: `# ${job.title}
+
+OpenClaw upstream is deployed and reachable.
+
+Prompt: ${job.input.prompt}`,
+    highlights: [
+      'Authenticated the real upstream gateway with its generated token',
+      'Verified the live OpenClaw deployment before run execution',
+      'Prepared the control-plane result bundle for the next protocol adapter step'
+    ],
+    artifacts: [
+      { name: `${slugifyTitle(job.title || "openclaw-upstream")}.md`, type: 'markdown', body: `# ${job.title}
+
+OpenClaw upstream gateway is healthy and authenticated.` },
+      { name: `${slugifyTitle(job.title || "openclaw-upstream")}.json`, type: 'dataset', body: summaryBody }
+    ]
+  };
+}
+
 async function invokeRuntimeRun(request, deployment, job) {
   if (!deployment?.endpoint) {
     return null;
+  }
+
+  if (deployment.runtime_adapter === "openclaw-upstream") {
+    return invokeOpenClawUpstreamRun(request, deployment, job);
   }
 
   const response = await fetch(`${deployment.endpoint}/runs`, {

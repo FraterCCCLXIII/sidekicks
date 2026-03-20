@@ -163,6 +163,10 @@ export type RenderedRuntimeLaunch = {
   metadata?: Record<string, string>;
 };
 
+export type DeploymentRuntimeAuth = {
+  token?: string;
+};
+
 export type AgentDeployment = {
   id: string;
   agentId: string;
@@ -174,6 +178,7 @@ export type AgentDeployment = {
   runtimeSource: "local-service" | "container";
   status: DeploymentStatus;
   renderedLaunch: RenderedRuntimeLaunch | null;
+  runtimeAuth: DeploymentRuntimeAuth | null;
   createdAt: string;
   updatedAt: string;
   lastHealthAt: string | null;
