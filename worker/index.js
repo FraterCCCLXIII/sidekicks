@@ -7,6 +7,7 @@ const {
 } = require("@aws-sdk/client-s3");
 const IORedis = require("ioredis");
 const { Pool } = require("pg");
+const { callOpenClawGateway } = require("./openclaw-gateway-client");
 
 const config = {
   backend: process.env.SIDEKICKS_BACKEND || "memory",
@@ -382,39 +383,55 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
     throw new Error("OpenClaw upstream deployment is missing endpoint or token");
   }
 
-  const response = await fetch(`${deployment.endpoint}/health`, {
-    headers: {
-      Authorization: `Bearer ${token}`
+  const history = await callOpenClawGateway({
+    endpoint: deployment.endpoint,
+    token,
+    method: "chat.history",
+    params: {}
+  });
+
+  if (!history.ok) {
+    throw new Error(`OpenClaw upstream chat.history failed: ${history.error}`);
+  }
+
+  const send = await callOpenClawGateway({
+    endpoint: deployment.endpoint,
+    token,
+    method: "chat.send",
+    params: {
+      text: job.input.prompt
     }
   });
 
-  if (!response.ok) {
-    throw new Error(`OpenClaw upstream health probe failed with status ${response.status}`);
+  if (!send.ok) {
+    throw new Error(`OpenClaw upstream chat.send failed: ${send.error}`);
   }
 
   const summaryBody = JSON.stringify({
-    status: 'connected',
+    status: 'gateway-rpc-ok',
     deploymentId: deployment.id,
     endpoint: deployment.endpoint,
-    prompt: job.input.prompt
+    prompt: job.input.prompt,
+    history: history.result,
+    send: send.result
   }, null, 2);
 
   return {
-    summary: `OpenClaw upstream gateway accepted the authenticated run context for ${request.agentName}.`,
+    summary: `OpenClaw upstream gateway accepted authenticated WS RPC for ${request.agentName}.`,
     markdown: `# ${job.title}
 
-OpenClaw upstream is deployed and reachable.
+OpenClaw upstream accepted authenticated gateway RPC calls for this run.
 
 Prompt: ${job.input.prompt}`,
     highlights: [
       'Authenticated the real upstream gateway with its generated token',
-      'Verified the live OpenClaw deployment before run execution',
-      'Prepared the control-plane result bundle for the next protocol adapter step'
+      'Executed gateway RPC methods instead of the Sidekicks-native /runs contract',
+      'Captured the raw upstream gateway results into the run bundle'
     ],
     artifacts: [
       { name: `${slugifyTitle(job.title || "openclaw-upstream")}.md`, type: 'markdown', body: `# ${job.title}
 
-OpenClaw upstream gateway is healthy and authenticated.` },
+OpenClaw upstream gateway accepted authenticated RPC.` },
       { name: `${slugifyTitle(job.title || "openclaw-upstream")}.json`, type: 'dataset', body: summaryBody }
     ]
   };

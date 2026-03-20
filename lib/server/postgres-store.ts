@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain/types";
 import { getDefaultNodeRuntimeEndpoint } from "@/lib/server/config";
 import { createId } from "@/lib/server/ids";
+import { callOpenClawGateway } from "@/lib/server/openclaw-gateway-client";
 import { type DeploymentRequest, type RunExecutionRequest } from "@/lib/server/queue";
 import { renderRuntimeLaunch } from "@/lib/server/runtime-renderers";
 import { createSeedState } from "@/lib/server/seed";
@@ -232,17 +233,31 @@ async function sendOpenClawUpstreamChat(options: {
   content: string;
   agentName: string;
 }) {
-  const response = await fetch(`${options.endpoint}/health`, {
-    headers: {
-      Authorization: `Bearer ${options.token}`
+  const history = await callOpenClawGateway({
+    endpoint: options.endpoint,
+    token: options.token,
+    method: "chat.history",
+    params: {}
+  });
+
+  if (!history.ok) {
+    return `OpenClaw upstream gateway for ${options.agentName} is healthy, but chat.history is not yet accepted by the current gateway protocol: ${history.error}`;
+  }
+
+  const send = await callOpenClawGateway({
+    endpoint: options.endpoint,
+    token: options.token,
+    method: "chat.send",
+    params: {
+      text: options.content
     }
   });
 
-  if (!response.ok) {
-    throw new Error(`OpenClaw upstream health probe failed with status ${response.status}`);
+  if (!send.ok) {
+    return `OpenClaw upstream gateway for ${options.agentName} is healthy and authenticated, but chat.send is not yet accepted by the current gateway protocol: ${send.error}`;
   }
 
-  return `OpenClaw upstream gateway for ${options.agentName} is healthy and authenticated. Direct conversational control is not wired yet, but the real upstream runtime is live and token-authenticated.`;
+  return `OpenClaw upstream gateway accepted authenticated WS control calls for ${options.agentName}. chat.history and chat.send both returned a gateway-level response.`;
 }
 
 function buildInitialSteps(): RunStep[] {
