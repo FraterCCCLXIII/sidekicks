@@ -11,7 +11,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     agentId: string;
-    agentName: string;
+    agentName?: string;
     title: string;
     input: {
       prompt: string;

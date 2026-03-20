@@ -44,7 +44,7 @@ export async function listJobs() {
 
 export async function createJob(input: {
   agentId: string;
-  agentName: string;
+  agentName?: string;
   title: string;
   input: {
     prompt: string;

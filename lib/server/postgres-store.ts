@@ -763,7 +763,12 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
 }
 
 export async function createPostgresJobAndRun(
-  input: Omit<Job, "id" | "createdAt" | "startedAt" | "completedAt" | "status">
+  input: {
+    agentId: string;
+    agentName?: string;
+    title: string;
+    input: Job["input"];
+  }
 ): Promise<{ job: Job; run: Run; request: RunExecutionRequest }> {
   await ensureDatabaseReady();
 
@@ -782,10 +787,11 @@ export async function createPostgresJobAndRun(
     const agent = mapAgent(agentRow);
     const deployment = deploymentResult.rows[0] ? mapDeployment(deploymentResult.rows[0]) : null;
     const createdAt = new Date().toISOString();
+    const agentName = input.agentName?.trim() || agent.name;
     const job: Job = {
       id: createId("job"),
       agentId: input.agentId,
-      agentName: input.agentName,
+      agentName,
       title: input.title,
       input: input.input,
       status: "queued",
@@ -797,7 +803,7 @@ export async function createPostgresJobAndRun(
       id: createId("run"),
       jobId: job.id,
       agentId: input.agentId,
-      agentName: input.agentName,
+      agentName,
       status: "queued",
       durationMs: null,
       createdAt,
@@ -879,6 +885,12 @@ export async function createPostgresChatExchange(agentId: string, content: strin
   await ensureDatabaseReady();
 
   return withTransaction(async (client) => {
+    const normalizedContent = content.trim();
+
+    if (!normalizedContent) {
+      throw new Error("Chat content is required");
+    }
+
     const agentResult = await client.query("SELECT * FROM agents WHERE id = $1", [agentId]);
     const deploymentResult = await client.query(
       "SELECT * FROM deployments WHERE agent_id = $1 ORDER BY updated_at DESC LIMIT 1",
@@ -903,7 +915,7 @@ export async function createPostgresChatExchange(agentId: string, content: strin
       agentId,
       deploymentId: deployment?.id ?? null,
       role: "user",
-      content,
+      content: normalizedContent,
       createdAt: new Date().toISOString()
     };
 
@@ -934,7 +946,7 @@ export async function createPostgresChatExchange(agentId: string, content: strin
           agentId: agent.id,
           agentName: agent.name,
           templateId: agent.templateId,
-          message: content,
+          message: normalizedContent,
           history: history.map((message) => ({
             role: message.role,
             content: message.content

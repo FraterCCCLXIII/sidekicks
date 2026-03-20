@@ -56,7 +56,7 @@ export function getRuns() {
 
 export function createJob(input: {
   agentId: string;
-  agentName: string;
+  agentName?: string;
   title: string;
   input: {
     prompt: string;

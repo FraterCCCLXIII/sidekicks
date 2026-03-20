@@ -28,10 +28,25 @@ export async function createAgentInstance(input: DeployRequest) {
 }
 
 export async function createJobAndRun(
-  input: Omit<Job, "id" | "createdAt" | "startedAt" | "completedAt" | "status">
+  input: {
+    agentId: string;
+    agentName?: string;
+    title: string;
+    input: Job["input"];
+  }
 ) {
   if (!isPostgresBackend()) {
-    return createMemoryJobAndRun(input);
+    const state = await listMemoryState();
+    const agent = state.agents.find((item) => item.id === input.agentId);
+
+    if (!agent) {
+      throw new Error("Agent not found");
+    }
+
+    return createMemoryJobAndRun({
+      ...input,
+      agentName: input.agentName?.trim() || agent.name
+    });
   }
 
   const created = await createPostgresJobAndRun(input);
