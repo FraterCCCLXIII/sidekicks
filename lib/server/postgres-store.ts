@@ -233,15 +233,21 @@ async function sendOpenClawUpstreamChat(options: {
   content: string;
   agentName: string;
 }) {
+  const sessionKey = "main";
+  const idempotencyKey = `sidekicks-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   const history = await callOpenClawGateway({
     endpoint: options.endpoint,
     token: options.token,
     method: "chat.history",
-    params: {}
+    params: {
+      sessionKey,
+      limit: 200
+    }
   });
 
   if (!history.ok) {
-    return `OpenClaw upstream gateway for ${options.agentName} is healthy, but chat.history is not yet accepted by the current gateway protocol: ${history.error}`;
+    return `OpenClaw upstream gateway for ${options.agentName} rejected chat.history: ${history.error}`;
   }
 
   const send = await callOpenClawGateway({
@@ -249,15 +255,20 @@ async function sendOpenClawUpstreamChat(options: {
     token: options.token,
     method: "chat.send",
     params: {
-      text: options.content
+      sessionKey,
+      message: options.content,
+      deliver: false,
+      idempotencyKey
     }
   });
 
   if (!send.ok) {
-    return `OpenClaw upstream gateway for ${options.agentName} is healthy and authenticated, but chat.send is not yet accepted by the current gateway protocol: ${send.error}`;
+    return `OpenClaw upstream gateway for ${options.agentName} rejected chat.send: ${send.error}`;
   }
 
-  return `OpenClaw upstream gateway accepted authenticated WS control calls for ${options.agentName}. chat.history and chat.send both returned a gateway-level response.`;
+  const sendResult = JSON.stringify(send.result);
+
+  return `OpenClaw upstream gateway accepted the real WS chat protocol for ${options.agentName}. Response payload: ${sendResult.slice(0, 500)}`;
 }
 
 function buildInitialSteps(): RunStep[] {

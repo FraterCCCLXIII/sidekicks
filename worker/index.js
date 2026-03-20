@@ -378,6 +378,8 @@ function appendLog(run, message, level = "info") {
 
 async function invokeOpenClawUpstreamRun(request, deployment, job) {
   const token = deployment?.runtime_auth?.token;
+  const sessionKey = 'main';
+  const idempotencyKey = `sidekicks-run-${request.runId}`;
 
   if (!deployment?.endpoint || !token) {
     throw new Error("OpenClaw upstream deployment is missing endpoint or token");
@@ -387,7 +389,10 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
     endpoint: deployment.endpoint,
     token,
     method: "chat.history",
-    params: {}
+    params: {
+      sessionKey,
+      limit: 200
+    }
   });
 
   if (!history.ok) {
@@ -399,7 +404,10 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
     token,
     method: "chat.send",
     params: {
-      text: job.input.prompt
+      sessionKey,
+      message: job.input.prompt,
+      deliver: false,
+      idempotencyKey
     }
   });
 
@@ -417,10 +425,10 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
   }, null, 2);
 
   return {
-    summary: `OpenClaw upstream gateway accepted authenticated WS RPC for ${request.agentName}.`,
+    summary: `OpenClaw upstream gateway accepted the real WS session-aware RPC flow for ${request.agentName}.`,
     markdown: `# ${job.title}
 
-OpenClaw upstream accepted authenticated gateway RPC calls for this run.
+OpenClaw upstream accepted authenticated gateway RPC calls for this run using the real connect + chat.history + chat.send flow.
 
 Prompt: ${job.input.prompt}`,
     highlights: [

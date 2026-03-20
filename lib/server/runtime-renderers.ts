@@ -15,12 +15,14 @@ function buildOpenClawConfig({
   agent,
   profile,
   bindMode,
-  allowUnconfigured
+  allowUnconfigured,
+  allowedOrigins
 }: {
   agent: AgentInstance;
   profile: LlmProfile | null;
   bindMode: "loopback" | "lan";
   allowUnconfigured: boolean;
+  allowedOrigins: string[];
 }) {
   const modelRef = profile?.model || agent.model;
 
@@ -30,7 +32,9 @@ function buildOpenClawConfig({
       bind: bindMode,
       port: 18789,
       controlUi: {
-        dangerouslyAllowHostHeaderOriginFallback: bindMode === "lan"
+        allowInsecureAuth: true,
+        dangerouslyAllowHostHeaderOriginFallback: bindMode === "lan",
+        allowedOrigins
       }
     },
     agents: {
@@ -65,7 +69,14 @@ function buildOpenClawLaunch({
     agent,
     profile,
     bindMode: "lan",
-    allowUnconfigured: true
+    allowUnconfigured: true,
+    allowedOrigins: [
+      "http://sidekicks-web-1:3000",
+      "http://sidekicks-worker-1",
+      "http://sidekicks-deployer-1",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000"
+    ]
   });
   const env = [
     { key: "HOME", value: "/tmp/openclaw-home" },

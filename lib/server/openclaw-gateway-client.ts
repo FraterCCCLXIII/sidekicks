@@ -12,6 +12,15 @@ type GatewayRpcFailure = {
 
 type GatewayRpcResponse = GatewayRpcSuccess | GatewayRpcFailure;
 
+type GatewayConnectHello = {
+  auth?: {
+    token?: string;
+    deviceToken?: string;
+    role?: string;
+    scopes?: string[];
+  };
+};
+
 function toWsUrl(endpoint: string) {
   if (endpoint.startsWith("https://")) {
     return endpoint.replace("https://", "wss://");
@@ -35,24 +44,91 @@ export async function callOpenClawGateway(options: {
       }
     });
     const requestId = `sidekicks-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const connectId = `connect-${requestId}`;
+    let isConnected = false;
     const timeout = setTimeout(() => {
       socket.close();
       resolve({ ok: false, error: `Timed out waiting for ${options.method}` });
     }, 10000);
 
-    socket.on("open", () => {
+    function sendRequest(id: string, method: string, params: Record<string, unknown>) {
       socket.send(
         JSON.stringify({
-          id: requestId,
-          method: options.method,
-          params: options.params ?? {}
+          type: "req",
+          id,
+          method,
+          params
         })
       );
+    }
+
+    socket.on("open", () => {
+      sendRequest(connectId, "connect", {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: {
+          id: "openclaw-control-ui",
+          version: "control-ui",
+          platform: "server",
+          mode: "webchat",
+          instanceId: requestId
+        },
+        role: "operator",
+        scopes: ["operator.admin", "operator.approvals", "operator.pairing"],
+        caps: ["tool-events"],
+        auth: {
+          token: options.token
+        },
+        userAgent: "Sidekicks/1.0",
+        locale: "en-US"
+      });
     });
 
     socket.on("message", (raw) => {
       try {
         const payload = JSON.parse(String(raw));
+
+        if (payload?.type === "event" && payload?.event === "connect.challenge") {
+          sendRequest(connectId, "connect", {
+            minProtocol: 3,
+            maxProtocol: 3,
+            client: {
+              id: "openclaw-control-ui",
+              version: "control-ui",
+              platform: "server",
+              mode: "webchat",
+              instanceId: requestId
+            },
+            role: "operator",
+            scopes: ["operator.admin", "operator.approvals", "operator.pairing"],
+            caps: ["tool-events"],
+            auth: {
+              token: options.token
+            },
+            userAgent: "Sidekicks/1.0",
+            locale: "en-US"
+          });
+          return;
+        }
+
+        if (payload?.type !== "res") {
+          return;
+        }
+
+        if (payload.id === connectId) {
+          if (!payload.ok) {
+            clearTimeout(timeout);
+            socket.close();
+            resolve({ ok: false, error: payload.error?.message ?? JSON.stringify(payload.error ?? payload) });
+            return;
+          }
+
+          isConnected = true;
+          const hello = (payload.payload ?? {}) as GatewayConnectHello;
+
+          sendRequest(requestId, options.method, options.params ?? {});
+          return;
+        }
 
         if (payload.id !== requestId) {
           return;
@@ -61,12 +137,12 @@ export async function callOpenClawGateway(options: {
         clearTimeout(timeout);
         socket.close();
 
-        if (payload.error) {
-          resolve({ ok: false, error: typeof payload.error === "string" ? payload.error : JSON.stringify(payload.error) });
+        if (!payload.ok) {
+          resolve({ ok: false, error: payload.error?.message ?? JSON.stringify(payload.error ?? payload) });
           return;
         }
 
-        resolve({ ok: true, result: payload.result ?? payload });
+        resolve({ ok: true, result: payload.payload ?? payload });
       } catch (error) {
         clearTimeout(timeout);
         socket.close();
@@ -81,6 +157,9 @@ export async function callOpenClawGateway(options: {
 
     socket.on("close", () => {
       clearTimeout(timeout);
+      if (!isConnected) {
+        return;
+      }
     });
   });
 }
