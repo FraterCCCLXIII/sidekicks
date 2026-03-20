@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { type PoolClient } from "pg";
 
 import {
@@ -32,6 +34,8 @@ type GlobalState = typeof globalThis & {
   __sidekicksDatabaseInitPromise?: Promise<void>;
 };
 
+const execFileAsync = promisify(execFile);
+
 function getGlobalState() {
   return globalThis as GlobalState;
 }
@@ -58,6 +62,31 @@ function parseJson<T>(value: unknown) {
   }
 
   return value as T;
+}
+
+function containerNameForDeployment(deploymentId: string) {
+  return `sidekicks-agent-${deploymentId.replace(/[^a-zA-Z0-9_.-]/g, "-")}`;
+}
+
+async function stopAndRemoveContainer(containerId: string) {
+  try {
+    await execFileAsync("docker", ["rm", "-f", containerId]);
+  } catch {
+    return;
+  }
+}
+
+async function stopDeploymentContainer(deploymentId: string, containerId: string | null) {
+  if (containerId) {
+    await stopAndRemoveContainer(containerId);
+    return;
+  }
+
+  try {
+    await execFileAsync("docker", ["rm", "-f", containerNameForDeployment(deploymentId)]);
+  } catch {
+    return;
+  }
 }
 
 function buildProfileSecretPreview(secret: string) {
@@ -1240,4 +1269,95 @@ export async function createPostgresChatExchange(agentId: string, content: strin
       assistantMessage
     };
   });
+}
+
+export async function deletePostgresAgent(agentId: string) {
+  await ensureDatabaseReady();
+
+  const deploymentRows = await getPool().query(
+    "SELECT id, container_id FROM deployments WHERE agent_id = $1 ORDER BY created_at DESC",
+    [agentId]
+  );
+
+  for (const row of deploymentRows.rows) {
+    await stopDeploymentContainer(String(row.id), row.container_id ? String(row.container_id) : null);
+  }
+
+  return withTransaction(async (client) => {
+    const agentResult = await client.query("SELECT id, name FROM agents WHERE id = $1", [agentId]);
+    const agentRow = agentResult.rows[0];
+
+    if (!agentRow) {
+      return { deleted: false };
+    }
+
+    const runsResult = await client.query("SELECT id FROM runs WHERE agent_id = $1", [agentId]);
+    const runIds = runsResult.rows.map((row) => String(row.id));
+
+    if (runIds.length > 0) {
+      await client.query("DELETE FROM artifacts WHERE run_id = ANY($1::text[])", [runIds]);
+    }
+
+    await client.query("DELETE FROM chat_messages WHERE agent_id = $1", [agentId]);
+    await client.query("DELETE FROM runs WHERE agent_id = $1", [agentId]);
+    await client.query("DELETE FROM jobs WHERE agent_id = $1", [agentId]);
+    await client.query("DELETE FROM deployments WHERE agent_id = $1", [agentId]);
+    await client.query("DELETE FROM agents WHERE id = $1", [agentId]);
+
+    return {
+      deleted: true,
+      id: String(agentRow.id),
+      name: String(agentRow.name)
+    };
+  });
+}
+
+export async function redeployPostgresAgent(agentId: string) {
+  await ensureDatabaseReady();
+
+  const deploymentRow = await getPool().query(
+    `
+      SELECT d.id, d.agent_id, d.template_id, d.image, d.container_id
+      FROM deployments d
+      WHERE d.agent_id = $1
+      ORDER BY d.updated_at DESC
+      LIMIT 1
+    `,
+    [agentId]
+  );
+
+  const deployment = deploymentRow.rows[0];
+
+  if (!deployment) {
+    return { queued: false as const, message: "Deployment not found" };
+  }
+
+  await stopDeploymentContainer(String(deployment.id), deployment.container_id ? String(deployment.container_id) : null);
+
+  const requestedAt = new Date().toISOString();
+
+  await getPool().query(
+    `
+      UPDATE deployments
+      SET status = 'provisioning',
+          container_id = NULL,
+          endpoint = NULL,
+          runtime_auth = NULL,
+          updated_at = $2::timestamptz,
+          last_health_at = NULL
+      WHERE id = $1
+    `,
+    [deployment.id, requestedAt]
+  );
+
+  return {
+    queued: true as const,
+    request: {
+      deploymentId: String(deployment.id),
+      agentId: String(deployment.agent_id),
+      templateId: String(deployment.template_id),
+      image: String(deployment.image),
+      requestedAt
+    }
+  };
 }

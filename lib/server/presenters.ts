@@ -73,6 +73,9 @@ export type DeploymentView = {
   endpoint: string | null;
   image: string;
   runtimeSource: AgentDeployment["runtimeSource"];
+  runtimeAdapter: AgentDeployment["runtimeAdapter"];
+  nativeDashboardUrl: string | null;
+  nativeDashboardToken: string | null;
   lastHealthAt: string | null;
 };
 
@@ -178,7 +181,12 @@ function findDeployment(state: ControlPlaneState, agentId: string) {
   return state.deployments.find((deployment) => deployment.agentId === agentId) ?? null;
 }
 
-function presentDeployment(deployment: AgentDeployment): DeploymentView {
+function presentDeployment(deployment: AgentDeployment, agentId?: string): DeploymentView {
+  const nativeDashboardUrl =
+    deployment.runtimeAdapter === "openclaw-upstream" && agentId
+      ? `/agents/${agentId}/native-dashboard`
+      : null;
+
   return {
     id: deployment.id,
     status: deployment.status,
@@ -186,6 +194,9 @@ function presentDeployment(deployment: AgentDeployment): DeploymentView {
     endpoint: deployment.endpoint,
     image: deployment.image,
     runtimeSource: deployment.runtimeSource,
+    runtimeAdapter: deployment.runtimeAdapter,
+    nativeDashboardUrl,
+    nativeDashboardToken: deployment.runtimeAdapter === "openclaw-upstream" ? deployment.runtimeAuth?.token ?? null : null,
     lastHealthAt: deployment.lastHealthAt ? formatRelativeTime(deployment.lastHealthAt) : null
   };
 }
@@ -251,7 +262,7 @@ export function presentAgentDetail(state: ControlPlaneState, agent: AgentInstanc
     tools: agent.tools,
     envVars: agent.envVars,
     createdAt: formatRelativeTime(agent.createdAt),
-    deployment: deployment ? presentDeployment(deployment) : null,
+    deployment: deployment ? presentDeployment(deployment, agent.id) : null,
     chatMessages: state.messages
       .filter((message) => message.agentId === agent.id)
       .slice(-20)

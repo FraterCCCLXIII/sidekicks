@@ -32,6 +32,19 @@ export function getAgent(agentId: string) {
   return fetchJson<AgentDetailView>(`/api/agents/${agentId}`);
 }
 
+export function deleteAgent(agentId: string) {
+  return fetchJson<{ deleted: boolean; id?: string; name?: string }>(`/api/agents/${agentId}`, {
+    method: "DELETE"
+  });
+}
+
+export function redeployAgent(agentId: string) {
+  return fetchJson<{ queued: boolean; request?: { deploymentId: string } }>(`/api/agents/${agentId}`, {
+    method: "POST",
+    body: JSON.stringify({ action: "redeploy" })
+  });
+}
+
 export function createAgent(input: DeployRequest) {
   return fetchJson<AgentListItemView>("/api/agents", {
     method: "POST",

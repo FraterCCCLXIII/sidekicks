@@ -7,13 +7,19 @@ function toWsUrl(endpoint) {
   return endpoint.replace('http://', 'ws://');
 }
 
+function toHttpOrigin(endpoint) {
+  const url = new URL(endpoint);
+  return `${url.protocol}//${url.host}`;
+}
+
 async function callOpenClawGateway(options) {
   const wsUrl = toWsUrl(options.endpoint);
 
   return new Promise((resolve) => {
     const socket = new WebSocket(wsUrl, {
       headers: {
-        Authorization: `Bearer ${options.token}`
+        Authorization: `Bearer ${options.token}`,
+        Origin: toHttpOrigin(options.endpoint)
       }
     });
     const requestId = `sidekicks-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

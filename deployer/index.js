@@ -13,7 +13,12 @@ const config = {
 
 const docker = new Docker({ socketPath: config.dockerSocketPath });
 const redis = new IORedis(config.redisUrl, {
-  maxRetriesPerRequest: null
+  maxRetriesPerRequest: null,
+  enableReadyCheck: true,
+  connectTimeout: 30000,
+  retryStrategy(attempt) {
+    return Math.min(attempt * 1000, 5000);
+  }
 });
 const pool = new Pool({
   connectionString: config.databaseUrl
@@ -304,6 +309,9 @@ async function createRenderedRuntimeContainer(deployment, agentId) {
       "18789/tcp": {}
     },
     HostConfig: {
+      PortBindings: {
+        "18789/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }]
+      },
       NetworkMode: config.dockerNetwork,
       RestartPolicy: {
         Name: "unless-stopped"
@@ -318,19 +326,22 @@ async function createRenderedRuntimeContainer(deployment, agentId) {
 
   await container.start();
   await writeRenderedFiles(container, renderedLaunch.files || []);
+  const inspection = await container.inspect();
+  const hostPort = inspection?.NetworkSettings?.Ports?.["18789/tcp"]?.[0]?.HostPort || null;
 
   log("rendered runtime container started", {
     deploymentId: deployment.id,
     agentId,
     image: deployment.image,
     adapter: deployment.runtime_adapter,
+    hostPort,
     renderedEnvKeys: (renderedLaunch.env || []).map((pair) => pair.key),
     renderedFilePaths: (renderedLaunch.files || []).map((file) => file.path)
   });
 
   return {
     containerId: container.id,
-    endpoint: `http://${name}:18789`
+    endpoint: hostPort ? `http://127.0.0.1:${hostPort}` : `http://${name}:18789`
   };
 }
 
@@ -519,7 +530,11 @@ async function startDeployer() {
       }
     },
     {
-      connection: redis
+      connection: redis,
+      concurrency: 1,
+      lockDuration: 300000,
+      stalledInterval: 120000,
+      maxStalledCount: 5
     }
   );
 

@@ -1,8 +1,8 @@
 import { type DeployRequest, type Job, type LlmProfileInput } from "@/lib/domain/types";
 import { isPostgresBackend } from "@/lib/server/config";
 import { enqueueAgentDeployment } from "@/lib/server/deploy-queue";
-import { addLlmProfile as addMemoryLlmProfile, createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, listState as listMemoryState } from "@/lib/server/store";
-import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, listPostgresState } from "@/lib/server/postgres-store";
+import { addLlmProfile as addMemoryLlmProfile, createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, deleteAgentInstance as deleteMemoryAgentInstance, listState as listMemoryState } from "@/lib/server/store";
+import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, deletePostgresAgent, listPostgresState, redeployPostgresAgent } from "@/lib/server/postgres-store";
 import { enqueueRunExecution } from "@/lib/server/run-queue";
 
 export async function listState() {
@@ -72,4 +72,26 @@ export async function createLlmProfile(input: LlmProfileInput) {
   }
 
   return addMemoryLlmProfile(input);
+}
+
+export async function deleteAgentInstance(agentId: string) {
+  if (isPostgresBackend()) {
+    return deletePostgresAgent(agentId);
+  }
+
+  return deleteMemoryAgentInstance(agentId);
+}
+
+export async function redeployAgentInstance(agentId: string) {
+  if (!isPostgresBackend()) {
+    throw new Error("Redeploy requires the postgres backend");
+  }
+
+  const result = await redeployPostgresAgent(agentId);
+
+  if (result.queued && result.request) {
+    await enqueueAgentDeployment(result.request);
+  }
+
+  return result;
 }

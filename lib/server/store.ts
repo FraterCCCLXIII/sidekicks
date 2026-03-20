@@ -141,6 +141,27 @@ export function createAgentInstance(input: DeployRequest) {
   return nextAgent;
 }
 
+export function deleteAgentInstance(agentId: string) {
+  const state = getControlPlaneState();
+  const index = state.agents.findIndex((item) => item.id === agentId);
+
+  if (index === -1) {
+    return { deleted: false as const };
+  }
+
+  const [agent] = state.agents.splice(index, 1);
+  state.messages = state.messages.filter((item) => item.agentId !== agentId);
+  state.artifacts = state.artifacts.filter((item) => item.agentId !== agentId);
+  state.runs = state.runs.filter((item) => item.agentId !== agentId);
+  state.jobs = state.jobs.filter((item) => item.agentId !== agentId);
+
+  return {
+    deleted: true as const,
+    id: agent.id,
+    name: agent.name
+  };
+}
+
 export function createJobRecord(input: Omit<Job, "id" | "createdAt" | "startedAt" | "completedAt" | "status">) {
   const state = getControlPlaneState();
   const agent = state.agents.find((item) => item.id === input.agentId);

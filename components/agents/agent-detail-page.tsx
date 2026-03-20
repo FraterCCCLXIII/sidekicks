@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Clock3, MessageSquareText, PlayCircle, Send, Server, TerminalSquare } from "lucide-react";
+import { Bot, Clock3, ExternalLink, MessageSquareText, PlayCircle, Send, Server, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { createJob, sendAgentChatMessage, useAgent, useAgentChat } from "@/hooks/use-sidekicks-data";
+import { createJob, deleteAgent, redeployAgent, sendAgentChatMessage, useAgent, useAgentChat } from "@/hooks/use-sidekicks-data";
 import { statusLabel, statusTone } from "@/lib/presentation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,31 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
       ]);
     }
   });
+  const deleteMutation = useMutation({
+    mutationFn: deleteAgent,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["agents"] }),
+        queryClient.invalidateQueries({ queryKey: ["runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["artifacts"] })
+      ]);
+      router.push("/agents");
+    }
+  });
+  const redeployMutation = useMutation({
+    mutationFn: redeployAgent,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["agents"] }),
+        queryClient.invalidateQueries({ queryKey: ["agents", agentId] }),
+        queryClient.invalidateQueries({ queryKey: ["agents", agentId, "chat"] }),
+        queryClient.invalidateQueries({ queryKey: ["runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["artifacts"] })
+      ]);
+    }
+  });
 
   if (!data) {
     return null;
@@ -58,6 +83,31 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
         <Link href="/agents" className="text-sm text-foreground/70 hover:text-foreground">
           Back to agents
         </Link>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={redeployMutation.isPending}
+            onClick={() => redeployMutation.mutate(agentId)}
+          >
+            Redeploy
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-red-300 hover:bg-red-500/10 hover:text-red-200"
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              if (!window.confirm(`Delete agent \"${data.name}\" and its runtime container?`)) {
+                return;
+              }
+
+              deleteMutation.mutate(agentId);
+            }}
+          >
+            Delete Agent
+          </Button>
+        </div>
       </div>
 
       <section className="panel overflow-hidden">
@@ -189,6 +239,17 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 <span className="text-sm text-muted-foreground">
                   {data.deployment?.endpoint ?? "No runtime endpoint attached"}
                 </span>
+                {data.deployment?.nativeDashboardUrl ? (
+                  <a
+                    href={data.deployment.nativeDashboardUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80 hover:text-foreground"
+                  >
+                    Open Native Dashboard
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : null}
               </div>
               {data.deployment ? (
                 <div className="mt-3 space-y-2 text-sm text-muted-foreground">
