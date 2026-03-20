@@ -181,6 +181,22 @@ function findDeployment(state: ControlPlaneState, agentId: string) {
   return state.deployments.find((deployment) => deployment.agentId === agentId) ?? null;
 }
 
+function maskEnvValue(key: string, value: string) {
+  if (/key|token|secret|password/i.test(key)) {
+    if (!value) {
+      return "configured";
+    }
+
+    if (value.length <= 8) {
+      return `${value.slice(0, 2)}...${value.slice(-2)}`;
+    }
+
+    return `${value.slice(0, 7)}...${value.slice(-4)}`;
+  }
+
+  return value;
+}
+
 function presentDeployment(deployment: AgentDeployment, agentId?: string): DeploymentView {
   const nativeDashboardUrl =
     deployment.runtimeAdapter === "openclaw-upstream" && agentId
@@ -260,7 +276,10 @@ export function presentAgentDetail(state: ControlPlaneState, agent: AgentInstanc
     memory: agent.memory,
     runtimeType: agent.runtimeType,
     tools: agent.tools,
-    envVars: agent.envVars,
+    envVars: agent.envVars.map((envVar) => ({
+      ...envVar,
+      value: maskEnvValue(envVar.key, envVar.value)
+    })),
     createdAt: formatRelativeTime(agent.createdAt),
     deployment: deployment ? presentDeployment(deployment, agent.id) : null,
     chatMessages: state.messages

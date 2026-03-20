@@ -1,4 +1,4 @@
-import { type DeployRequest, type LlmProfileInput, type SettingsData } from "@/lib/domain/types";
+import { type DeployRequest, type DeploymentLogEntry, type LlmProfileInput, type SettingsData } from "@/lib/domain/types";
 import { fetchJson } from "@/lib/api/client";
 import {
   type AgentDetailView,
@@ -54,6 +54,10 @@ export function createAgent(input: DeployRequest) {
 
 export function getAgentChat(agentId: string) {
   return fetchJson<ChatMessageView[]>(`/api/agents/${agentId}/chat`);
+}
+
+export function getAgentDeploymentLogs(agentId: string) {
+  return fetchJson<DeploymentLogEntry[]>(`/api/agents/${agentId}/deployment-logs`);
 }
 
 export function sendAgentChatMessage(agentId: string, content: string) {

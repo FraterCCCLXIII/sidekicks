@@ -9,6 +9,7 @@ import {
   type Artifact,
   type ChatMessage,
   type ControlPlaneState,
+  type DeploymentLogEntry,
   type DeployRequest,
   type Job,
   type LlmProfile,
@@ -242,6 +243,16 @@ function mapChatMessage(row: DatabaseRow): ChatMessage {
     role: row.role as ChatMessage["role"],
     content: String(row.content),
     createdAt: toIsoString(row.created_at) ?? new Date().toISOString()
+  };
+}
+
+function mapDeploymentLog(row: DatabaseRow): DeploymentLogEntry {
+  return {
+    id: String(row.id),
+    deploymentId: String(row.deployment_id),
+    timestamp: toIsoString(row.timestamp) ?? new Date().toISOString(),
+    level: row.level as DeploymentLogEntry["level"],
+    message: String(row.message)
   };
 }
 
@@ -757,6 +768,14 @@ export async function ensureDatabaseReady() {
           last_health_at timestamptz
         );
 
+        CREATE TABLE IF NOT EXISTS deployment_logs (
+          id text PRIMARY KEY,
+          deployment_id text NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+          timestamp timestamptz NOT NULL,
+          level text NOT NULL,
+          message text NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS chat_messages (
           id text PRIMARY KEY,
           agent_id text NOT NULL REFERENCES agents(id),
@@ -849,10 +868,11 @@ export async function ensureDatabaseReady() {
 export async function listPostgresState(): Promise<ControlPlaneState> {
   await ensureDatabaseReady();
 
-  const [templatesResult, agentsResult, deploymentsResult, jobsResult, runsResult, artifactsResult, messagesResult, runtimesResult, settingsResult] = await Promise.all([
+  const [templatesResult, agentsResult, deploymentsResult, deploymentLogsResult, jobsResult, runsResult, artifactsResult, messagesResult, runtimesResult, settingsResult] = await Promise.all([
     getPool().query("SELECT * FROM templates ORDER BY featured DESC, name ASC"),
     getPool().query("SELECT * FROM agents ORDER BY updated_at DESC"),
     getPool().query("SELECT * FROM deployments ORDER BY updated_at DESC"),
+    getPool().query("SELECT * FROM deployment_logs ORDER BY timestamp ASC"),
     getPool().query("SELECT * FROM jobs ORDER BY created_at DESC"),
     getPool().query("SELECT * FROM runs ORDER BY created_at DESC"),
     getPool().query("SELECT * FROM artifacts ORDER BY created_at DESC"),
@@ -865,6 +885,7 @@ export async function listPostgresState(): Promise<ControlPlaneState> {
     templates: templatesResult.rows.map(mapTemplate),
     agents: agentsResult.rows.map(mapAgent),
     deployments: deploymentsResult.rows.map(mapDeployment),
+    deploymentLogs: deploymentLogsResult.rows.map(mapDeploymentLog),
     jobs: jobsResult.rows.map(mapJob),
     runs: runsResult.rows.map(mapRun),
     artifacts: artifactsResult.rows.map(mapArtifact),
@@ -872,6 +893,29 @@ export async function listPostgresState(): Promise<ControlPlaneState> {
     runtimes: runtimesResult.rows.map(mapRuntime),
     settings: parseJson<SettingsData>(settingsResult.rows[0]?.data)
   };
+}
+
+export async function listDeploymentLogsForAgent(agentId: string) {
+  await ensureDatabaseReady();
+
+  const result = await getPool().query(
+    `
+      SELECT logs.*
+      FROM deployment_logs logs
+      WHERE logs.deployment_id = (
+        SELECT id
+        FROM deployments
+        WHERE agent_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+      )
+      ORDER BY logs.timestamp ASC
+      LIMIT 500
+    `,
+    [agentId]
+  );
+
+  return result.rows.map(mapDeploymentLog);
 }
 
 export async function createPostgresAgentInstance(input: DeployRequest): Promise<{
@@ -1317,8 +1361,11 @@ export async function redeployPostgresAgent(agentId: string) {
 
   const deploymentRow = await getPool().query(
     `
-      SELECT d.id, d.agent_id, d.template_id, d.image, d.container_id
+      SELECT d.id, d.agent_id, d.template_id, d.image, d.container_id, t.*, s.data AS settings_data, a.*
       FROM deployments d
+      JOIN templates t ON t.id = d.template_id
+      JOIN agents a ON a.id = d.agent_id
+      JOIN settings s ON s.id = 'default'
       WHERE d.agent_id = $1
       ORDER BY d.updated_at DESC
       LIMIT 1
@@ -1336,27 +1383,56 @@ export async function redeployPostgresAgent(agentId: string) {
 
   const requestedAt = new Date().toISOString();
 
+  const agent = mapAgent(deployment);
+  const template = mapTemplate(deployment);
+  const settings = parseJson<SettingsData>(deployment.settings_data);
+  const selectedProfile = settings.llmProfiles.find((profile) =>
+    agent.envVars.some((envVar) => envVar.key === profile.keyEnvVar && envVar.value === profile.apiKeySecret)
+  ) ?? null;
+  const nextDeployment = buildDefaultDeployment(agent, template, requestedAt);
+  nextDeployment.renderedLaunch = renderRuntimeLaunch({
+    agent,
+    template,
+    settings,
+    profile: selectedProfile,
+    deployment: nextDeployment
+  });
+
   await getPool().query(
     `
-      UPDATE deployments
-      SET status = 'provisioning',
-          container_id = NULL,
-          endpoint = NULL,
-          runtime_auth = NULL,
-          updated_at = $2::timestamptz,
-          last_health_at = NULL
-      WHERE id = $1
+      INSERT INTO deployments (
+        id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status,
+        rendered_launch, runtime_auth, created_at, updated_at, last_health_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10::jsonb, $11::jsonb, $12::timestamptz, $13::timestamptz, $14::timestamptz
+      )
     `,
-    [deployment.id, requestedAt]
+    [
+      nextDeployment.id,
+      nextDeployment.agentId,
+      nextDeployment.templateId,
+      nextDeployment.image,
+      nextDeployment.runtimeAdapter,
+      nextDeployment.containerId,
+      nextDeployment.endpoint,
+      nextDeployment.runtimeSource,
+      nextDeployment.status,
+      nextDeployment.renderedLaunch ? toJson(nextDeployment.renderedLaunch) : null,
+      nextDeployment.runtimeAuth ? toJson(nextDeployment.runtimeAuth) : null,
+      nextDeployment.createdAt,
+      nextDeployment.updatedAt,
+      nextDeployment.lastHealthAt
+    ]
   );
 
   return {
     queued: true as const,
     request: {
-      deploymentId: String(deployment.id),
-      agentId: String(deployment.agent_id),
-      templateId: String(deployment.template_id),
-      image: String(deployment.image),
+      deploymentId: nextDeployment.id,
+      agentId: nextDeployment.agentId,
+      templateId: nextDeployment.templateId,
+      image: nextDeployment.image,
       requestedAt
     }
   };

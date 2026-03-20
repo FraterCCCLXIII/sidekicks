@@ -2,7 +2,7 @@ import { type DeployRequest, type Job, type LlmProfileInput } from "@/lib/domain
 import { isPostgresBackend } from "@/lib/server/config";
 import { enqueueAgentDeployment } from "@/lib/server/deploy-queue";
 import { addLlmProfile as addMemoryLlmProfile, createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, deleteAgentInstance as deleteMemoryAgentInstance, listState as listMemoryState } from "@/lib/server/store";
-import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, deletePostgresAgent, listPostgresState, redeployPostgresAgent } from "@/lib/server/postgres-store";
+import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, deletePostgresAgent, listDeploymentLogsForAgent as listPostgresDeploymentLogsForAgent, listPostgresState, redeployPostgresAgent } from "@/lib/server/postgres-store";
 import { enqueueRunExecution } from "@/lib/server/run-queue";
 
 export async function listState() {
@@ -94,4 +94,12 @@ export async function redeployAgentInstance(agentId: string) {
   }
 
   return result;
+}
+
+export async function listDeploymentLogs(agentId: string) {
+  if (!isPostgresBackend()) {
+    return [];
+  }
+
+  return listPostgresDeploymentLogsForAgent(agentId);
 }

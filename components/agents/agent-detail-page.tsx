@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { createJob, deleteAgent, redeployAgent, sendAgentChatMessage, useAgent, useAgentChat } from "@/hooks/use-sidekicks-data";
+import { createJob, deleteAgent, redeployAgent, sendAgentChatMessage, useAgent, useAgentChat, useAgentDeploymentLogs } from "@/hooks/use-sidekicks-data";
 import { statusLabel, statusTone } from "@/lib/presentation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,10 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
       ]);
     }
   });
+  const { data: deploymentLogs } = useAgentDeploymentLogs(
+    agentId,
+    data?.deployment?.status === "provisioning" || redeployMutation.isPending
+  );
 
   if (!data) {
     return null;
@@ -226,76 +230,107 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
             <CardTitle>Deployment</CardTitle>
             <CardDescription>Runtime health, endpoint, and configuration for this deployed agent.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <MessageSquareText className="h-4 w-4" />
-                Deployment status
-              </div>
-              <div className="mt-3 flex items-center gap-3">
-                <Badge tone={data.deployment ? statusTone(data.deployment.status) : "muted"}>
-                  {data.deployment ? statusLabel(data.deployment.status) : "Unavailable"}
-                </Badge>
-                <span className="text-sm text-muted-foreground">
-                  {data.deployment?.endpoint ?? "No runtime endpoint attached"}
-                </span>
-                {data.deployment?.nativeDashboardUrl ? (
-                  <a
-                    href={data.deployment.nativeDashboardUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80 hover:text-foreground"
-                  >
-                    Open Native Dashboard
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
-                ) : null}
-              </div>
-              {data.deployment ? (
-                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                  <div>
-                    Image: <span className="text-foreground/80">{data.deployment.image}</span>
+          <CardContent>
+            <Tabs defaultValue="overview">
+              <TabsList>
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="terminal">Terminal</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="overview" className="space-y-4">
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <MessageSquareText className="h-4 w-4" />
+                    Deployment status
                   </div>
-                  <div>
-                    Container: <span className="font-mono text-foreground/80">{data.deployment.containerId ?? "pending"}</span>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Badge tone={data.deployment ? statusTone(data.deployment.status) : "muted"}>
+                      {data.deployment ? statusLabel(data.deployment.status) : "Unavailable"}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {data.deployment?.endpoint ?? "No runtime endpoint attached"}
+                    </span>
+                    {data.deployment?.nativeDashboardUrl ? (
+                      <a
+                        href={data.deployment.nativeDashboardUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80 hover:text-foreground"
+                      >
+                        Open Native Dashboard
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                  {data.deployment ? (
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      <div>
+                        Image: <span className="text-foreground/80">{data.deployment.image}</span>
+                      </div>
+                      <div>
+                        Container: <span className="font-mono text-foreground/80">{data.deployment.containerId ?? "pending"}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Server className="h-4 w-4" />
+                    Runtime
+                  </div>
+                  <div className="mt-2">{data.runtimeType}</div>
+                </div>
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Bot className="h-4 w-4" />
+                    Tools
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {data.tools.map((tool) => (
+                      <Badge key={tool} tone="muted">
+                        {tool}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
-              ) : null}
-            </div>
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Server className="h-4 w-4" />
-                Runtime
-              </div>
-              <div className="mt-2">{data.runtimeType}</div>
-            </div>
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Bot className="h-4 w-4" />
-                Tools
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {data.tools.map((tool) => (
-                  <Badge key={tool} tone="muted">
-                    {tool}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <TerminalSquare className="h-4 w-4" />
-                Env Vars
-              </div>
-              <div className="mt-3 space-y-2">
-                {data.envVars.map((envVar) => (
-                  <div key={envVar.key} className="flex items-center justify-between text-sm">
-                    <span className="font-mono">{envVar.key}</span>
-                    <span className="text-muted-foreground">{envVar.value}</span>
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <TerminalSquare className="h-4 w-4" />
+                    Env Vars
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="mt-3 space-y-2">
+                    {data.envVars.map((envVar) => (
+                      <div key={envVar.key} className="flex items-center justify-between text-sm">
+                        <span className="font-mono">{envVar.key}</span>
+                        <span className="text-muted-foreground">{envVar.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="terminal" className="space-y-4">
+                <div className="rounded-xl border border-white/[0.08] bg-black/70 p-4">
+                  <div className="mb-3 flex items-center justify-between text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    <span>Deployment Terminal</span>
+                    <span>{data.deployment?.status === "provisioning" ? "Live" : "Idle"}</span>
+                  </div>
+                  <div className="max-h-[420px] space-y-2 overflow-y-auto font-mono text-xs leading-6 text-emerald-100">
+                    {(deploymentLogs ?? []).length > 0 ? (
+                      (deploymentLogs ?? []).map((entry) => (
+                        <div key={entry.id}>
+                          <span className="text-emerald-300/70">[{new Date(entry.timestamp).toLocaleTimeString()}]</span>{" "}
+                          <span className="text-emerald-300/70">{entry.level.toUpperCase()}</span>{" "}
+                          <span>{entry.message}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-emerald-300/70">No deployment logs yet.</div>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </div>

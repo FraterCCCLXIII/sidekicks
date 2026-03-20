@@ -756,6 +756,7 @@ export function createSeedState(): ControlPlaneState {
     templates,
     agents,
     deployments,
+    deploymentLogs: [],
     jobs,
     runs,
     artifacts,

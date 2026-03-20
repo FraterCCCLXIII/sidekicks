@@ -6,6 +6,7 @@ import {
   addLlmProfile,
   createAgent,
   deleteAgent,
+  getAgentDeploymentLogs,
   redeployAgent,
   getAgentChat,
   createJob,
@@ -64,6 +65,15 @@ export function useAgentChat(agentId: string) {
     queryKey: ["agents", agentId, "chat"],
     queryFn: () => getAgentChat(agentId),
     refetchInterval: 2000
+  });
+}
+
+export function useAgentDeploymentLogs(agentId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["agents", agentId, "deployment-logs"],
+    queryFn: () => getAgentDeploymentLogs(agentId),
+    refetchInterval: enabled ? 2000 : false,
+    enabled
   });
 }
 

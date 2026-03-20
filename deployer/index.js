@@ -24,6 +24,31 @@ const pool = new Pool({
   connectionString: config.databaseUrl
 });
 
+async function appendDeploymentLog(deploymentId, level, message) {
+  try {
+    await pool.query(
+      `
+        INSERT INTO deployment_logs (id, deployment_id, timestamp, level, message)
+        VALUES ($1, $2, $3::timestamptz, $4, $5)
+      `,
+      [
+        `dlog_${Math.random().toString(36).slice(2, 10)}`,
+        deploymentId,
+        new Date().toISOString(),
+        level,
+        message
+      ]
+    );
+  } catch (error) {
+    log("deployment log write failed", {
+      deploymentId,
+      level,
+      message,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 function log(message, extra) {
   console.log(
     JSON.stringify({
@@ -250,8 +275,25 @@ async function extractOpenClawRuntimeAuth(container, renderedLaunch) {
   }
 }
 
+async function probeContainerHttp(container, path) {
+  const exec = await container.exec({
+    Cmd: [
+      "sh",
+      "-lc",
+      `node -e \"fetch('http://127.0.0.1:18789${path}').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"`
+    ],
+    AttachStdout: true,
+    AttachStderr: true
+  });
+  await exec.start({});
+  const result = await exec.inspect();
+  return result.ExitCode === 0;
+}
+
 async function createNativeRuntimeContainer(deployment, agentId) {
   const name = containerNameForDeployment(deployment.id);
+
+  await appendDeploymentLog(deployment.id, "info", `Stopping any existing runtime container for ${name}.`);
 
   await stopByName(name);
 
@@ -278,6 +320,7 @@ async function createNativeRuntimeContainer(deployment, agentId) {
   });
 
   await container.start();
+  await appendDeploymentLog(deployment.id, "info", `Container ${name} started from ${deployment.image}.`);
 
   log("runtime container started", {
     deploymentId: deployment.id,
@@ -295,7 +338,10 @@ async function createNativeRuntimeContainer(deployment, agentId) {
 async function createRenderedRuntimeContainer(deployment, agentId) {
   const name = containerNameForDeployment(deployment.id);
 
+  await appendDeploymentLog(deployment.id, "info", `Stopping any existing runtime container for ${name}.`);
+
   await stopByName(name);
+  await appendDeploymentLog(deployment.id, "info", `Pulling image ${deployment.image}.`);
   await pullImage(deployment.image);
 
   const renderedLaunch = parseJson(deployment.rendered_launch) || { env: [], files: [], command: null };
@@ -325,9 +371,18 @@ async function createRenderedRuntimeContainer(deployment, agentId) {
   });
 
   await container.start();
+  await appendDeploymentLog(deployment.id, "info", `Container ${name} started from ${deployment.image}.`);
   await writeRenderedFiles(container, renderedLaunch.files || []);
+  await appendDeploymentLog(
+    deployment.id,
+    "info",
+    `Rendered ${String((renderedLaunch.files || []).length)} config file(s) into the runtime container.`
+  );
   const inspection = await container.inspect();
   const hostPort = inspection?.NetworkSettings?.Ports?.["18789/tcp"]?.[0]?.HostPort || null;
+  if (hostPort) {
+    await appendDeploymentLog(deployment.id, "info", `Published OpenClaw dashboard on localhost:${hostPort}.`);
+  }
 
   log("rendered runtime container started", {
     deploymentId: deployment.id,
@@ -361,20 +416,50 @@ async function waitForHealth(endpoint) {
   return false;
 }
 
-async function waitForUpstreamOpenClaw(endpoint) {
-  for (let index = 0; index < 40; index += 1) {
+async function waitForUpstreamOpenClaw(container, endpoint, deploymentId) {
+  for (let index = 0; index < 120; index += 1) {
     try {
-      const response = await fetch(endpoint);
+      const healthy = await probeContainerHttp(container, "/health");
 
-      if (response.ok || response.status === 302 || response.status === 401 || response.status === 403) {
+      if (healthy) {
+        await appendDeploymentLog(deploymentId, "info", `OpenClaw health probe succeeded on attempt ${index + 1}.`);
         return true;
       }
     } catch {
-      await sleep(1000);
+      // noop, we log the retry below
     }
+
+    if ((index + 1) % 10 === 0) {
+      await appendDeploymentLog(
+        deploymentId,
+        "info",
+        `Still waiting for OpenClaw health (${index + 1}/120) at ${endpoint}.`
+      );
+    }
+
+    await sleep(1000);
   }
 
   return false;
+}
+
+async function waitForOpenClawRuntimeAuth(container, renderedLaunch, deploymentId) {
+  for (let index = 0; index < 30; index += 1) {
+    const runtimeAuth = await extractOpenClawRuntimeAuth(container, renderedLaunch);
+
+    if (runtimeAuth?.token) {
+      return runtimeAuth;
+    }
+
+    await appendDeploymentLog(
+      deploymentId,
+      "info",
+      `Runtime auth not available yet. Retrying token extraction (${index + 1}/30).`
+    );
+    await sleep(1000);
+  }
+
+  return null;
 }
 
 async function markDeploymentStatus(deploymentId, values) {
@@ -418,6 +503,11 @@ async function failDeployment(deploymentId, error) {
     deploymentId,
     error: error instanceof Error ? error.message : String(error)
   });
+  await appendDeploymentLog(
+    deploymentId,
+    "error",
+    error instanceof Error ? `Deployment failed: ${error.message}` : `Deployment failed: ${String(error)}`
+  );
 }
 
 async function deployRuntime(request) {
@@ -438,6 +528,8 @@ async function deployRuntime(request) {
     return;
   }
 
+  await appendDeploymentLog(request.deploymentId, "info", `Deployment job started for agent ${request.agentId}.`);
+
   if (!["sidekicks-native", "openclaw-upstream"].includes(deployment.runtime_adapter)) {
     log("skipping deploy for unsupported template", {
       deploymentId: request.deploymentId,
@@ -456,15 +548,25 @@ async function deployRuntime(request) {
     deployment.runtime_adapter === "openclaw-upstream"
       ? await createRenderedRuntimeContainer(deployment, request.agentId)
       : await createNativeRuntimeContainer(deployment, request.agentId);
+  const container = docker.getContainer(started.containerId);
+  await appendDeploymentLog(request.deploymentId, "info", `Waiting for runtime health at ${started.endpoint}.`);
   const healthy =
     deployment.runtime_adapter === "openclaw-upstream"
-      ? await waitForUpstreamOpenClaw(started.endpoint)
+      ? await waitForUpstreamOpenClaw(container, started.endpoint, request.deploymentId)
       : await waitForHealth(started.endpoint);
   const now = new Date().toISOString();
   const runtimeAuth =
     healthy && deployment.runtime_adapter === "openclaw-upstream"
-      ? await extractOpenClawRuntimeAuth(docker.getContainer(started.containerId), parseJson(deployment.rendered_launch))
+      ? await waitForOpenClawRuntimeAuth(
+          container,
+          parseJson(deployment.rendered_launch),
+          request.deploymentId
+        )
       : null;
+
+  if (runtimeAuth?.token) {
+    await appendDeploymentLog(request.deploymentId, "info", "Extracted runtime authentication token from OpenClaw config.");
+  }
 
   await markDeploymentStatus(request.deploymentId, {
     status: healthy ? "healthy" : "failed",
@@ -486,6 +588,11 @@ async function deployRuntime(request) {
     endpoint: started.endpoint,
     healthy
   });
+  await appendDeploymentLog(
+    request.deploymentId,
+    healthy ? "info" : "warn",
+    healthy ? `Deployment became healthy at ${started.endpoint}.` : `Deployment failed health checks at ${started.endpoint}.`
+  );
 }
 
 async function reconcilePendingDeployments() {

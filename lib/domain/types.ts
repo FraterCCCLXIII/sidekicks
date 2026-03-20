@@ -167,6 +167,14 @@ export type DeploymentRuntimeAuth = {
   token?: string;
 };
 
+export type DeploymentLogEntry = {
+  id: string;
+  deploymentId: string;
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  message: string;
+};
+
 export type AgentDeployment = {
   id: string;
   agentId: string;
@@ -250,6 +258,7 @@ export type ControlPlaneState = {
   templates: AgentTemplate[];
   agents: AgentInstance[];
   deployments: AgentDeployment[];
+  deploymentLogs: DeploymentLogEntry[];
   jobs: Job[];
   runs: Run[];
   artifacts: Artifact[];

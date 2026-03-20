@@ -1,6 +1,6 @@
 import { type DeployRequest, type LlmProfileInput } from "@/lib/domain/types";
 import { presentAgent, presentAgentDetail, presentArtifact, presentChatMessage, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createChatExchange, createJobAndRun, createLlmProfile, deleteAgentInstance, listState, redeployAgentInstance } from "@/lib/server/backend";
+import { createAgentInstance, createChatExchange, createJobAndRun, createLlmProfile, deleteAgentInstance, listDeploymentLogs, listState, redeployAgentInstance } from "@/lib/server/backend";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -120,4 +120,8 @@ export async function removeAgent(agentId: string) {
 
 export async function redeployAgent(agentId: string) {
   return wait(await redeployAgentInstance(agentId), 120);
+}
+
+export async function getDeploymentLogs(agentId: string) {
+  return wait(await listDeploymentLogs(agentId), 80);
 }
