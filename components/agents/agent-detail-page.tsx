@@ -1,36 +1,50 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Clock3, PlayCircle, Server, TerminalSquare } from "lucide-react";
+import { Bot, Clock3, MessageSquareText, PlayCircle, Send, Server, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { createJob, useAgent } from "@/hooks/use-sidekicks-data";
+import { createJob, sendAgentChatMessage, useAgent, useAgentChat } from "@/hooks/use-sidekicks-data";
 import { statusLabel, statusTone } from "@/lib/presentation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function AgentDetailPage({ agentId }: { agentId: string }) {
   const { data } = useAgent(agentId);
+  const { data: chatMessages } = useAgentChat(agentId);
   const queryClient = useQueryClient();
   const router = useRouter();
   const [title, setTitle] = useState("New run");
   const [prompt, setPrompt] = useState("");
+  const [chatInput, setChatInput] = useState("");
 
-  const mutation = useMutation({
+  const jobMutation = useMutation({
     mutationFn: createJob,
     onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["agents"] }),
         queryClient.invalidateQueries({ queryKey: ["agents", agentId] }),
+        queryClient.invalidateQueries({ queryKey: ["agents", agentId, "chat"] }),
         queryClient.invalidateQueries({ queryKey: ["runs"] }),
         queryClient.invalidateQueries({ queryKey: ["artifacts"] })
       ]);
       router.push(`/runs/${result.run.id}`);
+    }
+  });
+  const chatMutation = useMutation({
+    mutationFn: (content: string) => sendAgentChatMessage(agentId, content),
+    onSuccess: async () => {
+      setChatInput("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["agents", agentId] }),
+        queryClient.invalidateQueries({ queryKey: ["agents", agentId, "chat"] })
+      ]);
     }
   });
 
@@ -76,51 +90,112 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Create Job</CardTitle>
-            <CardDescription>Submit a new task to this agent and send it into the execution queue.</CardDescription>
+            <CardTitle>Agent Interaction</CardTitle>
+            <CardDescription>Chat with the deployed runtime or queue a structured run.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="space-y-2 text-sm">
-              <span className="text-muted-foreground">Job title</span>
-              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-            </label>
-            <label className="space-y-2 text-sm">
-              <span className="text-muted-foreground">Prompt</span>
-              <textarea
-                className="min-h-40 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-white/20 focus:ring-2 focus:ring-white/10"
-                placeholder="Describe the task to execute..."
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-              />
-            </label>
-            <Button
-              onClick={() =>
-                mutation.mutate({
-                  agentId: data.id,
-                  agentName: data.name,
-                  title,
-                  input: {
-                    prompt
+          <CardContent>
+            <Tabs defaultValue="chat">
+              <TabsList>
+                <TabsTrigger value="chat">Chat</TabsTrigger>
+                <TabsTrigger value="job">Create Job</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="chat" className="space-y-4">
+                <div className="max-h-[420px] space-y-3 overflow-y-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  {(chatMessages ?? data.chatMessages).map((message) => (
+                    <div
+                      key={message.id}
+                      className={`max-w-[88%] rounded-xl border px-4 py-3 text-sm ${
+                        message.role === "user"
+                          ? "ml-auto border-white/[0.14] bg-white/[0.08] text-foreground"
+                          : "border-white/[0.08] bg-black/20 text-foreground/90"
+                      }`}
+                    >
+                      <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                        <span>{message.role}</span>
+                        <span>{message.createdAt}</span>
+                      </div>
+                      <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  <textarea
+                    className="min-h-32 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-white/20 focus:ring-2 focus:ring-white/10"
+                    placeholder="Message this agent..."
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                  />
+                  <Button onClick={() => chatMutation.mutate(chatInput)} disabled={chatMutation.isPending || !chatInput.trim()}>
+                    <Send className="h-4 w-4" />
+                    {chatMutation.isPending ? "Sending..." : "Send message"}
+                  </Button>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="job" className="space-y-4">
+                <label className="space-y-2 text-sm">
+                  <span className="text-muted-foreground">Job title</span>
+                  <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+                </label>
+                <label className="space-y-2 text-sm">
+                  <span className="text-muted-foreground">Prompt</span>
+                  <textarea
+                    className="min-h-40 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-white/20 focus:ring-2 focus:ring-white/10"
+                    placeholder="Describe the task to execute..."
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                  />
+                </label>
+                <Button
+                  onClick={() =>
+                    jobMutation.mutate({
+                      agentId: data.id,
+                      agentName: data.name,
+                      title,
+                      input: {
+                        prompt
+                      }
+                    })
                   }
-                })
-              }
-              disabled={mutation.isPending || !title.trim() || !prompt.trim()}
-            >
-              <PlayCircle className="h-4 w-4" />
-              {mutation.isPending ? "Queuing..." : "Create Job"}
-            </Button>
+                  disabled={jobMutation.isPending || !title.trim() || !prompt.trim()}
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  {jobMutation.isPending ? "Queuing..." : "Create Job"}
+                </Button>
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Runtime Config</CardTitle>
-            <CardDescription>Current execution profile and environment for this deployed agent.</CardDescription>
+            <CardTitle>Deployment</CardTitle>
+            <CardDescription>Runtime health, endpoint, and configuration for this deployed agent.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <MessageSquareText className="h-4 w-4" />
+                Deployment status
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <Badge tone={data.deployment ? statusTone(data.deployment.status) : "muted"}>
+                  {data.deployment ? statusLabel(data.deployment.status) : "Unavailable"}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  {data.deployment?.endpoint ?? "No runtime endpoint attached"}
+                </span>
+              </div>
+              {data.deployment ? (
+                <div className="mt-3 text-sm text-muted-foreground">
+                  Image: <span className="text-foreground/80">{data.deployment.image}</span>
+                </div>
+              ) : null}
+            </div>
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Server className="h-4 w-4" />

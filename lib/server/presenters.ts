@@ -1,7 +1,9 @@
 import {
   type AgentInstance,
+  type AgentDeployment,
   type AgentTemplate,
   type Artifact,
+  type ChatMessage,
   type ControlPlaneState,
   type Run,
   type SettingsData
@@ -58,7 +60,25 @@ export type AgentDetailView = AgentListItemView & {
   tools: AgentInstance["tools"];
   envVars: AgentInstance["envVars"];
   createdAt: string;
+  deployment: DeploymentView | null;
+  chatMessages: ChatMessageView[];
   recentRuns: RunListItemView[];
+};
+
+export type DeploymentView = {
+  id: string;
+  status: AgentDeployment["status"];
+  endpoint: string | null;
+  image: string;
+  runtimeSource: AgentDeployment["runtimeSource"];
+  lastHealthAt: string | null;
+};
+
+export type ChatMessageView = {
+  id: string;
+  role: ChatMessage["role"];
+  content: string;
+  createdAt: string;
 };
 
 export type RunListItemView = {
@@ -152,6 +172,30 @@ function agentTemplateName(state: ControlPlaneState, agentId: string) {
   return state.agents.find((agent) => agent.id === agentId)?.templateName ?? "Unknown Template";
 }
 
+function findDeployment(state: ControlPlaneState, agentId: string) {
+  return state.deployments.find((deployment) => deployment.agentId === agentId) ?? null;
+}
+
+function presentDeployment(deployment: AgentDeployment): DeploymentView {
+  return {
+    id: deployment.id,
+    status: deployment.status,
+    endpoint: deployment.endpoint,
+    image: deployment.image,
+    runtimeSource: deployment.runtimeSource,
+    lastHealthAt: deployment.lastHealthAt ? formatRelativeTime(deployment.lastHealthAt) : null
+  };
+}
+
+export function presentChatMessage(message: ChatMessage): ChatMessageView {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    createdAt: formatRelativeTime(message.createdAt)
+  };
+}
+
 export function presentTemplate(template: AgentTemplate): TemplateListItemView {
   return {
     id: template.id,
@@ -194,6 +238,8 @@ export function presentAgent(agent: AgentInstance): AgentListItemView {
 }
 
 export function presentAgentDetail(state: ControlPlaneState, agent: AgentInstance): AgentDetailView {
+  const deployment = findDeployment(state, agent.id);
+
   return {
     ...presentAgent(agent),
     model: agent.model,
@@ -202,6 +248,11 @@ export function presentAgentDetail(state: ControlPlaneState, agent: AgentInstanc
     tools: agent.tools,
     envVars: agent.envVars,
     createdAt: formatRelativeTime(agent.createdAt),
+    deployment: deployment ? presentDeployment(deployment) : null,
+    chatMessages: state.messages
+      .filter((message) => message.agentId === agent.id)
+      .slice(-20)
+      .map(presentChatMessage),
     recentRuns: state.runs
       .filter((run) => run.agentId === agent.id)
       .slice(0, 5)

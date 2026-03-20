@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   createAgent,
+  getAgentChat,
   createJob,
   getAgent,
   getAgents,
@@ -13,6 +14,7 @@ import {
   getRunDetail,
   getRuns,
   getSettings,
+  sendAgentChatMessage,
   getTemplates
 } from "@/lib/api/control-plane";
 
@@ -54,6 +56,14 @@ export function useAgent(agentId: string) {
   });
 }
 
+export function useAgentChat(agentId: string) {
+  return useQuery({
+    queryKey: ["agents", agentId, "chat"],
+    queryFn: () => getAgentChat(agentId),
+    refetchInterval: 2000
+  });
+}
+
 export function useRuns() {
   return useQuery({
     queryKey: ["runs"],
@@ -85,4 +95,4 @@ export function useSettings() {
   });
 }
 
-export { createAgent, createJob };
+export { createAgent, createJob, sendAgentChatMessage };

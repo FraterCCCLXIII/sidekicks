@@ -17,6 +17,8 @@ export type RunStatus = JobStatus;
 export type RunStepState = "pending" | "active" | "completed" | "failed";
 export type WorkerRuntimeStatus = "online" | "offline" | "degraded";
 export type ArtifactType = "report" | "build" | "dataset" | "markdown" | "log" | "app";
+export type DeploymentStatus = "provisioning" | "healthy" | "degraded" | "stopped" | "failed";
+export type ChatRole = "user" | "assistant" | "system";
 
 export type AgentEnvVar = {
   key: string;
@@ -147,6 +149,28 @@ export type WorkerRuntime = {
   status: WorkerRuntimeStatus;
 };
 
+export type AgentDeployment = {
+  id: string;
+  agentId: string;
+  templateId: string;
+  image: string;
+  endpoint: string | null;
+  runtimeSource: "local-service" | "container";
+  status: DeploymentStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastHealthAt: string | null;
+};
+
+export type ChatMessage = {
+  id: string;
+  agentId: string;
+  deploymentId: string | null;
+  role: ChatRole;
+  content: string;
+  createdAt: string;
+};
+
 export type DeployRequest = {
   templateId: string;
   agentName: string;
@@ -189,9 +213,11 @@ export type SettingsData = {
 export type ControlPlaneState = {
   templates: AgentTemplate[];
   agents: AgentInstance[];
+  deployments: AgentDeployment[];
   jobs: Job[];
   runs: Run[];
   artifacts: Artifact[];
+  messages: ChatMessage[];
   runtimes: WorkerRuntime[];
   settings: SettingsData;
 };

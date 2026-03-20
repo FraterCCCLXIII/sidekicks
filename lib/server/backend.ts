@@ -1,7 +1,7 @@
 import { type DeployRequest, type Job } from "@/lib/domain/types";
 import { isPostgresBackend } from "@/lib/server/config";
 import { createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, listState as listMemoryState } from "@/lib/server/store";
-import { createPostgresAgentInstance, createPostgresJobAndRun, listPostgresState } from "@/lib/server/postgres-store";
+import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, listPostgresState } from "@/lib/server/postgres-store";
 import { enqueueRunExecution } from "@/lib/server/run-queue";
 
 export async function listState() {
@@ -34,4 +34,12 @@ export async function createJobAndRun(
     job: created.job,
     run: created.run
   };
+}
+
+export async function createChatExchange(agentId: string, content: string) {
+  if (!isPostgresBackend()) {
+    throw new Error("Chat exchange requires the postgres backend");
+  }
+
+  return createPostgresChatExchange(agentId, content);
 }

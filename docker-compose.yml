@@ -12,12 +12,14 @@ services:
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: sidekicks-artifacts
       CONTROL_PLANE_ROLE: control-node
+      RUNTIME_NODE_ENDPOINT: http://runtime-node:4001
     ports:
       - "3000:3000"
     depends_on:
       - postgres
       - redis
       - minio
+      - runtime-node
     restart: unless-stopped
 
   worker:
@@ -35,11 +37,21 @@ services:
       CONTROL_PLANE_URL: http://web:3000
       WORKER_QUEUE: sidekicks-runs
       WORKER_RUNTIME: node
+      RUNTIME_NODE_ENDPOINT: http://runtime-node:4001
     depends_on:
       - postgres
       - redis
       - minio
       - web
+      - runtime-node
+    restart: unless-stopped
+
+  runtime-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    environment:
+      PORT: 4001
     restart: unless-stopped
 
   postgres:

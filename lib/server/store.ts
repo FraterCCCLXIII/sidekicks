@@ -300,6 +300,7 @@ export function createJobAndRun(input: Omit<Job, "id" | "createdAt" | "startedAt
     jobId: nextJob.id,
     agentId: input.agentId,
     agentName: input.agentName,
+    deploymentId: null,
     runtimeType: agent.runtimeType,
     templateId: agent.templateId,
     requestedAt: createdAt

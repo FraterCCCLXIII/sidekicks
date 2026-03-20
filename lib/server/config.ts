@@ -58,3 +58,7 @@ export function getStorageCredentials() {
     secretAccessKey: process.env.S3_SECRET_KEY ?? "sidekickspassword"
   };
 }
+
+export function getDefaultNodeRuntimeEndpoint() {
+  return process.env.RUNTIME_NODE_ENDPOINT ?? "http://127.0.0.1:4001";
+}

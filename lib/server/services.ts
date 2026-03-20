@@ -1,6 +1,6 @@
 import { type DeployRequest } from "@/lib/domain/types";
-import { presentAgent, presentAgentDetail, presentArtifact, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createJobAndRun, listState } from "@/lib/server/backend";
+import { presentAgent, presentAgentDetail, presentArtifact, presentChatMessage, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
+import { createAgentInstance, createChatExchange, createJobAndRun, listState } from "@/lib/server/backend";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -83,6 +83,23 @@ export async function listArtifacts() {
 export async function getArtifactById(artifactId: string) {
   const artifact = (await listState()).artifacts.find((item) => item.id === artifactId);
   return wait(artifact ?? null);
+}
+
+export async function listChatMessages(agentId: string) {
+  const state = await listState();
+  return wait(state.messages.filter((item) => item.agentId === agentId).map(presentChatMessage));
+}
+
+export async function sendChatMessage(agentId: string, content: string) {
+  const result = await createChatExchange(agentId, content);
+
+  return wait(
+    {
+      userMessage: presentChatMessage(result.userMessage),
+      assistantMessage: presentChatMessage(result.assistantMessage)
+    },
+    120
+  );
 }
 
 export async function getDashboard() {

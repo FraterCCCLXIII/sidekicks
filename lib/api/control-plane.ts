@@ -4,6 +4,7 @@ import {
   type AgentDetailView,
   type AgentListItemView,
   type ArtifactListItemView,
+  type ChatMessageView,
   type DashboardView,
   type RunDetailView,
   type RunListItemView,
@@ -35,6 +36,17 @@ export function createAgent(input: DeployRequest) {
   return fetchJson<AgentListItemView>("/api/agents", {
     method: "POST",
     body: JSON.stringify(input)
+  });
+}
+
+export function getAgentChat(agentId: string) {
+  return fetchJson<ChatMessageView[]>(`/api/agents/${agentId}/chat`);
+}
+
+export function sendAgentChatMessage(agentId: string, content: string) {
+  return fetchJson<{ userMessage: ChatMessageView; assistantMessage: ChatMessageView }>(`/api/agents/${agentId}/chat`, {
+    method: "POST",
+    body: JSON.stringify({ content })
   });
 }
 

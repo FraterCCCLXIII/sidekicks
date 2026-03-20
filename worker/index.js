@@ -293,6 +293,9 @@ async function loadExecutionContext(client, request) {
   const runResult = await client.query("SELECT * FROM runs WHERE id = $1 FOR UPDATE", [request.runId]);
   const jobResult = await client.query("SELECT * FROM jobs WHERE id = $1 FOR UPDATE", [request.jobId]);
   const agentResult = await client.query("SELECT * FROM agents WHERE id = $1 FOR UPDATE", [request.agentId]);
+  const deploymentResult = request.deploymentId
+    ? await client.query("SELECT * FROM deployments WHERE id = $1", [request.deploymentId])
+    : { rows: [] };
 
   if (!runResult.rows[0] || !jobResult.rows[0] || !agentResult.rows[0]) {
     return null;
@@ -301,7 +304,8 @@ async function loadExecutionContext(client, request) {
   return {
     run: runResult.rows[0],
     job: jobResult.rows[0],
-    agent: agentResult.rows[0]
+    agent: agentResult.rows[0],
+    deployment: deploymentResult.rows[0] || null
   };
 }
 
@@ -370,6 +374,34 @@ function appendLog(run, message, level = "info") {
   });
 }
 
+async function invokeRuntimeRun(request, deployment, job) {
+  if (!deployment?.endpoint) {
+    return null;
+  }
+
+  const response = await fetch(`${deployment.endpoint}/runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      runId: request.runId,
+      agentId: request.agentId,
+      agentName: request.agentName,
+      templateId: request.templateId,
+      title: job.title,
+      prompt: job.input.prompt,
+      slug: slugifyTitle(job.title || "run-output")
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Runtime run request failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function markRunning(request) {
   await withTransaction(async (client) => {
     const context = await loadExecutionContext(client, request);
@@ -378,7 +410,7 @@ async function markRunning(request) {
       return;
     }
 
-    const { run, job, agent } = context;
+    const { run, job, agent, deployment } = context;
     const startedAt = new Date().toISOString();
     run.status = "running";
     run.started_at = startedAt;
@@ -386,7 +418,12 @@ async function markRunning(request) {
     run.logs = parseJson(run.logs);
     run.artifact_ids = parseJson(run.artifact_ids);
     run.steps[1].state = "active";
-    appendLog(run, `Worker claimed run on ${request.runtimeType} runtime.`);
+    appendLog(
+      run,
+      deployment?.endpoint
+        ? `Worker claimed run and routed it to deployed runtime at ${deployment.endpoint}.`
+        : `Worker claimed run on ${request.runtimeType} runtime.`
+    );
 
     job.status = "running";
     job.started_at = startedAt;
@@ -408,13 +445,13 @@ async function markExecutionStarted(request) {
       return;
     }
 
-    const { run } = context;
+    const { run, deployment } = context;
     run.logs = parseJson(run.logs);
     run.steps = parseJson(run.steps);
     run.artifact_ids = parseJson(run.artifact_ids);
     run.steps[1].state = "completed";
     run.steps[2].state = "active";
-    appendLog(run, "Execution started inside isolated worker context.");
+    appendLog(run, deployment?.endpoint ? "Execution started inside deployed runtime service." : "Execution started inside isolated worker context.");
     await persistRun(client, run);
   });
 }
@@ -427,13 +464,13 @@ async function markExecutionProgress(request) {
       return;
     }
 
-    const { run } = context;
+    const { run, deployment } = context;
     run.logs = parseJson(run.logs);
     run.steps = parseJson(run.steps);
     run.artifact_ids = parseJson(run.artifact_ids);
     run.steps[2].detail = "Primary task execution completed. Finalizing output package.";
     run.steps[3].state = "active";
-    appendLog(run, "Collected outputs, compiling final result bundle.");
+    appendLog(run, deployment?.endpoint ? "Runtime returned execution payload, compiling final result bundle." : "Collected outputs, compiling final result bundle.");
     await persistRun(client, run);
   });
 }
@@ -446,7 +483,7 @@ async function finalizeRun(request) {
       return;
     }
 
-    const { run, job, agent } = context;
+    const { run, job, agent, deployment } = context;
     run.logs = parseJson(run.logs);
     run.steps = parseJson(run.steps);
     run.artifact_ids = parseJson(run.artifact_ids);
@@ -476,7 +513,43 @@ async function finalizeRun(request) {
       };
       appendLog(run, "Worker marked run as failed during simulated execution.", "error");
     } else {
-      const templateResult = buildTemplateExecution(request, run, job);
+      const runtimeResult = await invokeRuntimeRun(request, deployment, job);
+      const templateResult = runtimeResult
+        ? {
+            output: {
+              title: job.title,
+              summary: runtimeResult.summary,
+              highlights: runtimeResult.highlights,
+              markdown: runtimeResult.markdown,
+              links: runtimeResult.artifacts.map((artifact) => ({
+                label: artifact.name,
+                href: `#pending-${artifact.name}`
+              }))
+            },
+            artifacts: [
+              ...runtimeResult.artifacts.map((artifact) => ({
+                artifact: createArtifact(
+                  run.id,
+                  request.agentId,
+                  artifact.name,
+                  artifact.type,
+                  Buffer.byteLength(artifact.body)
+                ),
+                body: artifact.body
+              })),
+              {
+                artifact: createArtifact(
+                  run.id,
+                  request.agentId,
+                  `${run.id}-log.txt`,
+                  "log",
+                  Buffer.byteLength(run.logs.map((entry) => `[${entry.level}] ${entry.message}`).join("\n"))
+                ),
+                body: run.logs.map((entry) => `[${entry.level}] ${entry.message}`).join("\n")
+              }
+            ]
+          }
+        : buildTemplateExecution(request, run, job);
 
       run.status = "completed";
       job.status = "completed";
@@ -486,7 +559,13 @@ async function finalizeRun(request) {
       run.steps[3].detail = "Artifacts persisted to storage metadata.";
       appendLog(run, "Persisting output bundle to object storage.");
       await uploadArtifactBodies(templateResult.artifacts);
-      run.output = templateResult.output;
+      run.output = {
+        ...templateResult.output,
+        links: templateResult.artifacts.map((item) => ({
+          label: item.artifact.name,
+          href: `/api/artifacts/${item.artifact.id}/download`
+        }))
+      };
       run.artifact_ids.push(...templateResult.artifacts.map((item) => item.artifact.id));
       appendLog(run, "Persisted output bundle and run log artifacts.");
 

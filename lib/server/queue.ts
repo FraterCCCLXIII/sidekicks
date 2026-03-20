@@ -5,6 +5,7 @@ export type RunExecutionRequest = {
   jobId: string;
   agentId: string;
   agentName: string;
+  deploymentId: string | null;
   runtimeType: RuntimeType;
   templateId: string;
   requestedAt: string;

@@ -1,12 +1,15 @@
 import {
   type AgentInstance,
+  type AgentDeployment,
   type AgentTemplate,
   type Artifact,
+  type ChatMessage,
   type ControlPlaneState,
   type Job,
   type Run,
   type SettingsData
 } from "@/lib/domain/types";
+import { getDefaultNodeRuntimeEndpoint } from "@/lib/server/config";
 import { defineWorkerRuntime } from "@/lib/server/queue";
 
 function isoMinutesAgo(minutes: number) {
@@ -548,6 +551,88 @@ const artifacts: Artifact[] = [
   { id: "artifact_010", runId: "run_784", agentId: "agent_research_2", name: "vendor-notes.pdf", type: "report", size: 982142, storageKey: "runs/run_784/vendor-notes.pdf", downloadUrl: "#", createdAt: isoHoursAgo(6) }
 ];
 
+const deployments: AgentDeployment[] = [
+  {
+    id: "dep_research_1",
+    agentId: "agent_research_1",
+    templateId: "tpl_openclaw",
+    image: "ghcr.io/fratercccxxxiii/openclaw:0.3.1",
+    endpoint: getDefaultNodeRuntimeEndpoint(),
+    runtimeSource: "local-service",
+    status: "healthy",
+    createdAt: isoHoursAgo(12),
+    updatedAt: isoMinutesAgo(2),
+    lastHealthAt: isoMinutesAgo(1)
+  },
+  {
+    id: "dep_builder_1",
+    agentId: "agent_builder_1",
+    templateId: "tpl_appclaw",
+    image: "ghcr.io/fratercccxxxiii/appclaw:0.2.4",
+    endpoint: getDefaultNodeRuntimeEndpoint(),
+    runtimeSource: "local-service",
+    status: "healthy",
+    createdAt: isoHoursAgo(10),
+    updatedAt: isoMinutesAgo(17),
+    lastHealthAt: isoMinutesAgo(3)
+  },
+  {
+    id: "dep_ops_1",
+    agentId: "agent_ops_1",
+    templateId: "tpl_nanoclaw",
+    image: "ghcr.io/fratercccxxxiii/nanoclaw:0.1.8",
+    endpoint: getDefaultNodeRuntimeEndpoint(),
+    runtimeSource: "local-service",
+    status: "degraded",
+    createdAt: isoHoursAgo(8),
+    updatedAt: isoMinutesAgo(50),
+    lastHealthAt: isoMinutesAgo(6)
+  },
+  {
+    id: "dep_research_2",
+    agentId: "agent_research_2",
+    templateId: "tpl_openclaw",
+    image: "ghcr.io/fratercccxxxiii/openclaw:0.3.1",
+    endpoint: getDefaultNodeRuntimeEndpoint(),
+    runtimeSource: "local-service",
+    status: "healthy",
+    createdAt: isoHoursAgo(7),
+    updatedAt: isoHoursAgo(2),
+    lastHealthAt: isoMinutesAgo(7)
+  },
+  {
+    id: "dep_data_1",
+    agentId: "agent_data_1",
+    templateId: "tpl_dataclaw",
+    image: "ghcr.io/fratercccxxxiii/dataclaw:0.4.0",
+    endpoint: null,
+    runtimeSource: "container",
+    status: "provisioning",
+    createdAt: isoHoursAgo(6),
+    updatedAt: isoHoursAgo(1),
+    lastHealthAt: null
+  }
+];
+
+const messages: ChatMessage[] = [
+  {
+    id: "msg_001",
+    agentId: "agent_research_1",
+    deploymentId: "dep_research_1",
+    role: "assistant",
+    content: "OpenClaw is online. Ask for a research brief, source scan, or comparison report.",
+    createdAt: isoMinutesAgo(20)
+  },
+  {
+    id: "msg_002",
+    agentId: "agent_builder_1",
+    deploymentId: "dep_builder_1",
+    role: "assistant",
+    content: "AppClaw is deployed and ready. I can help scope an app, refine a prompt, or package a build run.",
+    createdAt: isoMinutesAgo(18)
+  }
+];
+
 const settings: SettingsData = {
   workspaceName: "Sidekicks Production",
   environment: "Production",
@@ -603,9 +688,11 @@ export function createSeedState(): ControlPlaneState {
   return {
     templates,
     agents,
+    deployments,
     jobs,
     runs,
     artifacts,
+    messages,
     runtimes: [
       defineWorkerRuntime({
         id: "runtime_node_default",

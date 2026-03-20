@@ -2,8 +2,10 @@ import { type PoolClient } from "pg";
 
 import {
   type AgentInstance,
+  type AgentDeployment,
   type AgentTemplate,
   type Artifact,
+  type ChatMessage,
   type ControlPlaneState,
   type DeployRequest,
   type Job,
@@ -13,6 +15,7 @@ import {
   type SettingsData,
   type WorkerRuntime
 } from "@/lib/domain/types";
+import { getDefaultNodeRuntimeEndpoint } from "@/lib/server/config";
 import { createId } from "@/lib/server/ids";
 import { type RunExecutionRequest } from "@/lib/server/queue";
 import { createSeedState } from "@/lib/server/seed";
@@ -145,6 +148,32 @@ function mapArtifact(row: DatabaseRow): Artifact {
   };
 }
 
+function mapDeployment(row: DatabaseRow): AgentDeployment {
+  return {
+    id: String(row.id),
+    agentId: String(row.agent_id),
+    templateId: String(row.template_id),
+    image: String(row.image),
+    endpoint: row.endpoint ? String(row.endpoint) : null,
+    runtimeSource: row.runtime_source as AgentDeployment["runtimeSource"],
+    status: row.status as AgentDeployment["status"],
+    createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
+    updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
+    lastHealthAt: toIsoString(row.last_health_at)
+  };
+}
+
+function mapChatMessage(row: DatabaseRow): ChatMessage {
+  return {
+    id: String(row.id),
+    agentId: String(row.agent_id),
+    deploymentId: row.deployment_id ? String(row.deployment_id) : null,
+    role: row.role as ChatMessage["role"],
+    content: String(row.content),
+    createdAt: toIsoString(row.created_at) ?? new Date().toISOString()
+  };
+}
+
 function mapRuntime(row: DatabaseRow): WorkerRuntime {
   return {
     id: String(row.id),
@@ -163,6 +192,21 @@ function buildInitialSteps(): RunStep[] {
     { id: createId("step"), title: "Execute task", state: "pending", detail: "Task execution has not started yet." },
     { id: createId("step"), title: "Persist outputs", state: "pending", detail: "Artifacts and metadata will be stored after execution." }
   ];
+}
+
+function buildDefaultDeployment(agent: AgentInstance, template: AgentTemplate, now: string): AgentDeployment {
+  return {
+    id: createId("dep"),
+    agentId: agent.id,
+    templateId: template.id,
+    image: template.runtimeImage,
+    endpoint: template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
+    runtimeSource: template.runtimeType === "node" ? "local-service" : "container",
+    status: template.runtimeType === "node" ? "healthy" : "provisioning",
+    createdAt: now,
+    updatedAt: now,
+    lastHealthAt: template.runtimeType === "node" ? now : null
+  };
 }
 
 async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>) {
@@ -262,6 +306,30 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     );
   }
 
+  for (const deployment of state.deployments) {
+    await client.query(
+      `
+        INSERT INTO deployments (
+          id, agent_id, template_id, image, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz
+        )
+      `,
+      [
+        deployment.id,
+        deployment.agentId,
+        deployment.templateId,
+        deployment.image,
+        deployment.endpoint,
+        deployment.runtimeSource,
+        deployment.status,
+        deployment.createdAt,
+        deployment.updatedAt,
+        deployment.lastHealthAt
+      ]
+    );
+  }
+
   for (const job of state.jobs) {
     await client.query(
       `
@@ -321,7 +389,62 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     );
   }
 
+  for (const message of state.messages) {
+    await client.query(
+      `
+        INSERT INTO chat_messages (id, agent_id, deployment_id, role, content, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+      `,
+      [message.id, message.agentId, message.deploymentId, message.role, message.content, message.createdAt]
+    );
+  }
+
   await client.query("INSERT INTO settings (id, data) VALUES ($1, $2::jsonb)", ["default", toJson(state.settings)]);
+}
+
+async function backfillDeployments(client: PoolClient) {
+  const result = await client.query(
+    `
+      SELECT agents.*, templates.runtime_image
+      FROM agents
+      JOIN templates ON templates.id = agents.template_id
+      LEFT JOIN deployments ON deployments.agent_id = agents.id
+      WHERE deployments.id IS NULL
+    `
+  );
+
+  for (const row of result.rows) {
+    const now = new Date().toISOString();
+    const agent = mapAgent(row);
+    const template = {
+      id: String(row.template_id),
+      runtimeImage: String(row.runtime_image),
+      runtimeType: row.runtime_type as AgentTemplate["runtimeType"]
+    } as AgentTemplate;
+    const deployment = buildDefaultDeployment(agent, template, now);
+
+    await client.query(
+      `
+        INSERT INTO deployments (
+          id, agent_id, template_id, image, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz
+        )
+      `,
+      [
+        deployment.id,
+        deployment.agentId,
+        deployment.templateId,
+        deployment.image,
+        deployment.endpoint,
+        deployment.runtimeSource,
+        deployment.status,
+        deployment.createdAt,
+        deployment.updatedAt,
+        deployment.lastHealthAt
+      ]
+    );
+  }
 }
 
 export async function ensureDatabaseReady() {
@@ -421,6 +544,28 @@ export async function ensureDatabaseReady() {
           status text NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS deployments (
+          id text PRIMARY KEY,
+          agent_id text NOT NULL REFERENCES agents(id),
+          template_id text NOT NULL REFERENCES templates(id),
+          image text NOT NULL,
+          endpoint text,
+          runtime_source text NOT NULL,
+          status text NOT NULL,
+          created_at timestamptz NOT NULL,
+          updated_at timestamptz NOT NULL,
+          last_health_at timestamptz
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_messages (
+          id text PRIMARY KEY,
+          agent_id text NOT NULL REFERENCES agents(id),
+          deployment_id text REFERENCES deployments(id),
+          role text NOT NULL,
+          content text NOT NULL,
+          created_at timestamptz NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
           id text PRIMARY KEY,
           data jsonb NOT NULL
@@ -433,6 +578,10 @@ export async function ensureDatabaseReady() {
         await withTransaction(async (client) => {
           await insertSeedData(client, createSeedState());
         });
+      } else {
+        await withTransaction(async (client) => {
+          await backfillDeployments(client);
+        });
       }
     })();
   }
@@ -443,12 +592,14 @@ export async function ensureDatabaseReady() {
 export async function listPostgresState(): Promise<ControlPlaneState> {
   await ensureDatabaseReady();
 
-  const [templatesResult, agentsResult, jobsResult, runsResult, artifactsResult, runtimesResult, settingsResult] = await Promise.all([
+  const [templatesResult, agentsResult, deploymentsResult, jobsResult, runsResult, artifactsResult, messagesResult, runtimesResult, settingsResult] = await Promise.all([
     getPool().query("SELECT * FROM templates ORDER BY featured DESC, name ASC"),
     getPool().query("SELECT * FROM agents ORDER BY updated_at DESC"),
+    getPool().query("SELECT * FROM deployments ORDER BY updated_at DESC"),
     getPool().query("SELECT * FROM jobs ORDER BY created_at DESC"),
     getPool().query("SELECT * FROM runs ORDER BY created_at DESC"),
     getPool().query("SELECT * FROM artifacts ORDER BY created_at DESC"),
+    getPool().query("SELECT * FROM chat_messages ORDER BY created_at ASC"),
     getPool().query("SELECT * FROM runtimes ORDER BY name ASC"),
     getPool().query("SELECT data FROM settings WHERE id = $1", ["default"])
   ]);
@@ -456,9 +607,11 @@ export async function listPostgresState(): Promise<ControlPlaneState> {
   return {
     templates: templatesResult.rows.map(mapTemplate),
     agents: agentsResult.rows.map(mapAgent),
+    deployments: deploymentsResult.rows.map(mapDeployment),
     jobs: jobsResult.rows.map(mapJob),
     runs: runsResult.rows.map(mapRun),
     artifacts: artifactsResult.rows.map(mapArtifact),
+    messages: messagesResult.rows.map(mapChatMessage),
     runtimes: runtimesResult.rows.map(mapRuntime),
     settings: parseJson<SettingsData>(settingsResult.rows[0]?.data)
   };
@@ -496,6 +649,7 @@ export async function createPostgresAgentInstance(input: DeployRequest) {
       lastRunAt: null,
       region: settings.region
     };
+    const deployment = buildDefaultDeployment(agent, template, now);
 
     await client.query(
       `
@@ -525,6 +679,27 @@ export async function createPostgresAgentInstance(input: DeployRequest) {
         agent.region
       ]
     );
+    await client.query(
+      `
+        INSERT INTO deployments (
+          id, agent_id, template_id, image, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz
+        )
+      `,
+      [
+        deployment.id,
+        deployment.agentId,
+        deployment.templateId,
+        deployment.image,
+        deployment.endpoint,
+        deployment.runtimeSource,
+        deployment.status,
+        deployment.createdAt,
+        deployment.updatedAt,
+        deployment.lastHealthAt
+      ]
+    );
 
     return agent;
   });
@@ -537,6 +712,10 @@ export async function createPostgresJobAndRun(
 
   return withTransaction(async (client) => {
     const agentResult = await client.query("SELECT * FROM agents WHERE id = $1 FOR UPDATE", [input.agentId]);
+    const deploymentResult = await client.query(
+      "SELECT * FROM deployments WHERE agent_id = $1 ORDER BY updated_at DESC LIMIT 1",
+      [input.agentId]
+    );
     const agentRow = agentResult.rows[0];
 
     if (!agentRow) {
@@ -544,6 +723,7 @@ export async function createPostgresJobAndRun(
     }
 
     const agent = mapAgent(agentRow);
+    const deployment = deploymentResult.rows[0] ? mapDeployment(deploymentResult.rows[0]) : null;
     const createdAt = new Date().toISOString();
     const job: Job = {
       id: createId("job"),
@@ -629,10 +809,117 @@ export async function createPostgresJobAndRun(
         jobId: job.id,
         agentId: agent.id,
         agentName: agent.name,
+        deploymentId: deployment?.id ?? null,
         runtimeType: agent.runtimeType,
         templateId: agent.templateId,
         requestedAt: createdAt
       }
+    };
+  });
+}
+
+export async function createPostgresChatExchange(agentId: string, content: string) {
+  await ensureDatabaseReady();
+
+  return withTransaction(async (client) => {
+    const agentResult = await client.query("SELECT * FROM agents WHERE id = $1", [agentId]);
+    const deploymentResult = await client.query(
+      "SELECT * FROM deployments WHERE agent_id = $1 ORDER BY updated_at DESC LIMIT 1",
+      [agentId]
+    );
+    const messagesResult = await client.query(
+      "SELECT * FROM chat_messages WHERE agent_id = $1 ORDER BY created_at ASC",
+      [agentId]
+    );
+
+    const agentRow = agentResult.rows[0];
+
+    if (!agentRow) {
+      throw new Error("Agent not found");
+    }
+
+    const deployment = deploymentResult.rows[0] ? mapDeployment(deploymentResult.rows[0]) : null;
+    const agent = mapAgent(agentRow);
+    const history = messagesResult.rows.map(mapChatMessage);
+    const userMessage: ChatMessage = {
+      id: createId("msg"),
+      agentId,
+      deploymentId: deployment?.id ?? null,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString()
+    };
+
+    await client.query(
+      `
+        INSERT INTO chat_messages (id, agent_id, deployment_id, role, content, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+      `,
+      [
+        userMessage.id,
+        userMessage.agentId,
+        userMessage.deploymentId,
+        userMessage.role,
+        userMessage.content,
+        userMessage.createdAt
+      ]
+    );
+
+    let assistantContent = `No deployment is available for ${agent.name}.`;
+
+    if (deployment?.endpoint && deployment.status !== "failed" && deployment.status !== "stopped") {
+      const response = await fetch(`${deployment.endpoint}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          agentId: agent.id,
+          agentName: agent.name,
+          templateId: agent.templateId,
+          message: content,
+          history: history.map((message) => ({
+            role: message.role,
+            content: message.content
+          }))
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Runtime chat request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as { reply: string };
+      assistantContent = payload.reply;
+    }
+
+    const assistantMessage: ChatMessage = {
+      id: createId("msg"),
+      agentId,
+      deploymentId: deployment?.id ?? null,
+      role: "assistant",
+      content: assistantContent,
+      createdAt: new Date().toISOString()
+    };
+
+    await client.query(
+      `
+        INSERT INTO chat_messages (id, agent_id, deployment_id, role, content, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+      `,
+      [
+        assistantMessage.id,
+        assistantMessage.agentId,
+        assistantMessage.deploymentId,
+        assistantMessage.role,
+        assistantMessage.content,
+        assistantMessage.createdAt
+      ]
+    );
+
+    return {
+      userMessage,
+      assistantMessage
     };
   });
 }
