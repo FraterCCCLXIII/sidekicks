@@ -83,11 +83,21 @@ async function createRuntimeContainer(deployment, agentId) {
     deployment.template_id === "tpl_nanoclaw"
       ? ["RUNTIME_TEMPLATE_ID=tpl_nanoclaw", "RUNTIME_NAME=NanoClaw", "PORT=4001"]
       : ["RUNTIME_TEMPLATE_ID=tpl_openclaw", "RUNTIME_NAME=OpenClaw", "PORT=4001"];
+  const agentEnvVars = Array.isArray(deployment.agent_env_vars) ? deployment.agent_env_vars : [];
+  const mergedEnv = [...templateEnv];
+
+  for (const pair of agentEnvVars) {
+    if (!pair || typeof pair.key !== "string") {
+      continue;
+    }
+
+    mergedEnv.push(`${pair.key}=${pair.value ?? ""}`);
+  }
 
   const container = await docker.createContainer({
     Image: deployment.image,
     name,
-    Env: templateEnv,
+    Env: mergedEnv,
     ExposedPorts: {
       "4001/tcp": {}
     },
@@ -104,6 +114,13 @@ async function createRuntimeContainer(deployment, agentId) {
   });
 
   await container.start();
+
+  log("runtime container started", {
+    deploymentId: deployment.id,
+    agentId,
+    image: deployment.image,
+    injectedEnvKeys: agentEnvVars.map((pair) => pair.key)
+  });
 
   return {
     containerId: container.id,
@@ -153,7 +170,15 @@ async function markDeploymentStatus(deploymentId, values) {
 
 async function deployRuntime(request) {
   const deployment = await withTransaction(async (client) => {
-    const result = await client.query("SELECT * FROM deployments WHERE id = $1", [request.deploymentId]);
+    const result = await client.query(
+      `
+        SELECT d.*, a.env_vars AS agent_env_vars
+        FROM deployments d
+        JOIN agents a ON a.id = d.agent_id
+        WHERE d.id = $1
+      `,
+      [request.deploymentId]
+    );
     return result.rows[0] || null;
   });
 
