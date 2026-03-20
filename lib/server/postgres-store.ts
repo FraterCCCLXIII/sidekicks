@@ -17,7 +17,7 @@ import {
 } from "@/lib/domain/types";
 import { getDefaultNodeRuntimeEndpoint } from "@/lib/server/config";
 import { createId } from "@/lib/server/ids";
-import { type RunExecutionRequest } from "@/lib/server/queue";
+import { type DeploymentRequest, type RunExecutionRequest } from "@/lib/server/queue";
 import { createSeedState } from "@/lib/server/seed";
 import { getPool } from "@/lib/server/db";
 
@@ -154,6 +154,7 @@ function mapDeployment(row: DatabaseRow): AgentDeployment {
     agentId: String(row.agent_id),
     templateId: String(row.template_id),
     image: String(row.image),
+    containerId: row.container_id ? String(row.container_id) : null,
     endpoint: row.endpoint ? String(row.endpoint) : null,
     runtimeSource: row.runtime_source as AgentDeployment["runtimeSource"],
     status: row.status as AgentDeployment["status"],
@@ -195,17 +196,20 @@ function buildInitialSteps(): RunStep[] {
 }
 
 function buildDefaultDeployment(agent: AgentInstance, template: AgentTemplate, now: string): AgentDeployment {
+  const isDedicatedRuntime = template.id === "tpl_openclaw" || template.id === "tpl_nanoclaw";
+
   return {
     id: createId("dep"),
     agentId: agent.id,
     templateId: template.id,
     image: template.runtimeImage,
-    endpoint: template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
-    runtimeSource: template.runtimeType === "node" ? "local-service" : "container",
-    status: template.runtimeType === "node" ? "healthy" : "provisioning",
+    containerId: null,
+    endpoint: isDedicatedRuntime ? null : template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
+    runtimeSource: isDedicatedRuntime ? "container" : template.runtimeType === "node" ? "local-service" : "container",
+    status: isDedicatedRuntime ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
     createdAt: now,
     updatedAt: now,
-    lastHealthAt: template.runtimeType === "node" ? now : null
+    lastHealthAt: isDedicatedRuntime ? null : template.runtimeType === "node" ? now : null
   };
 }
 
@@ -310,9 +314,9 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
         )
       `,
       [
@@ -320,6 +324,7 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
         deployment.agentId,
         deployment.templateId,
         deployment.image,
+        deployment.containerId,
         deployment.endpoint,
         deployment.runtimeSource,
         deployment.status,
@@ -416,19 +421,19 @@ async function backfillDeployments(client: PoolClient) {
   for (const row of result.rows) {
     const now = new Date().toISOString();
     const agent = mapAgent(row);
-    const template = {
-      id: String(row.template_id),
-      runtimeImage: String(row.runtime_image),
-      runtimeType: row.runtime_type as AgentTemplate["runtimeType"]
+      const template = {
+        id: String(row.template_id),
+        runtimeImage: String(row.runtime_image),
+        runtimeType: row.runtime_type as AgentTemplate["runtimeType"]
     } as AgentTemplate;
     const deployment = buildDefaultDeployment(agent, template, now);
 
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
         )
       `,
       [
@@ -436,6 +441,7 @@ async function backfillDeployments(client: PoolClient) {
         deployment.agentId,
         deployment.templateId,
         deployment.image,
+        deployment.containerId,
         deployment.endpoint,
         deployment.runtimeSource,
         deployment.status,
@@ -549,6 +555,7 @@ export async function ensureDatabaseReady() {
           agent_id text NOT NULL REFERENCES agents(id),
           template_id text NOT NULL REFERENCES templates(id),
           image text NOT NULL,
+          container_id text,
           endpoint text,
           runtime_source text NOT NULL,
           status text NOT NULL,
@@ -572,6 +579,11 @@ export async function ensureDatabaseReady() {
         );
       `);
 
+      await getPool().query(`
+        ALTER TABLE deployments
+        ADD COLUMN IF NOT EXISTS container_id text;
+      `);
+
       const countResult = await getPool().query<{ count: string }>("SELECT COUNT(*)::text AS count FROM templates");
 
       if (Number(countResult.rows[0]?.count ?? 0) === 0) {
@@ -581,6 +593,35 @@ export async function ensureDatabaseReady() {
       } else {
         await withTransaction(async (client) => {
           await backfillDeployments(client);
+          await client.query(
+            `
+              UPDATE templates
+              SET runtime_image = CASE
+                WHEN id = 'tpl_openclaw' THEN 'sidekicks-runtime-openclaw:latest'
+                WHEN id = 'tpl_nanoclaw' THEN 'sidekicks-runtime-nanoclaw:latest'
+                ELSE runtime_image
+              END
+              WHERE id IN ('tpl_openclaw', 'tpl_nanoclaw')
+            `
+          );
+          await client.query(
+            `
+              UPDATE deployments
+              SET runtime_source = 'container',
+                  status = 'provisioning',
+                  image = CASE
+                    WHEN template_id = 'tpl_openclaw' THEN 'sidekicks-runtime-openclaw:latest'
+                    WHEN template_id = 'tpl_nanoclaw' THEN 'sidekicks-runtime-nanoclaw:latest'
+                    ELSE image
+                  END,
+                  endpoint = NULL,
+                  container_id = NULL,
+                  updated_at = NOW(),
+                  last_health_at = NULL
+              WHERE template_id IN ('tpl_openclaw', 'tpl_nanoclaw')
+                AND runtime_source = 'local-service'
+            `
+          );
         });
       }
     })();
@@ -617,7 +658,10 @@ export async function listPostgresState(): Promise<ControlPlaneState> {
   };
 }
 
-export async function createPostgresAgentInstance(input: DeployRequest) {
+export async function createPostgresAgentInstance(input: DeployRequest): Promise<{
+  agent: AgentInstance;
+  deploymentRequest: DeploymentRequest | null;
+}> {
   await ensureDatabaseReady();
 
   return withTransaction(async (client) => {
@@ -682,9 +726,9 @@ export async function createPostgresAgentInstance(input: DeployRequest) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
         )
       `,
       [
@@ -692,6 +736,7 @@ export async function createPostgresAgentInstance(input: DeployRequest) {
         deployment.agentId,
         deployment.templateId,
         deployment.image,
+        deployment.containerId,
         deployment.endpoint,
         deployment.runtimeSource,
         deployment.status,
@@ -701,7 +746,19 @@ export async function createPostgresAgentInstance(input: DeployRequest) {
       ]
     );
 
-    return agent;
+    return {
+      agent,
+      deploymentRequest:
+        deployment.runtimeSource === "container"
+          ? {
+              deploymentId: deployment.id,
+              agentId: deployment.agentId,
+              templateId: deployment.templateId,
+              image: deployment.image,
+              requestedAt: now
+            }
+          : null
+    };
   });
 }
 

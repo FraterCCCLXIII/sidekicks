@@ -40,6 +40,10 @@ export function getWorkerQueueName() {
   return process.env.WORKER_QUEUE ?? "sidekicks-runs";
 }
 
+export function getDeployQueueName() {
+  return process.env.DEPLOY_QUEUE ?? "sidekicks-deployments";
+}
+
 export function getStorageBucket() {
   return process.env.S3_BUCKET ?? "sidekicks-artifacts";
 }
@@ -61,4 +65,8 @@ export function getStorageCredentials() {
 
 export function getDefaultNodeRuntimeEndpoint() {
   return process.env.RUNTIME_NODE_ENDPOINT ?? "http://127.0.0.1:4001";
+}
+
+export function getDockerNetworkName() {
+  return process.env.DOCKER_NETWORK ?? "sidekicks_default";
 }

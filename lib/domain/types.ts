@@ -154,6 +154,7 @@ export type AgentDeployment = {
   agentId: string;
   templateId: string;
   image: string;
+  containerId: string | null;
   endpoint: string | null;
   runtimeSource: "local-service" | "container";
   status: DeploymentStatus;

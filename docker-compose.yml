@@ -13,6 +13,7 @@ services:
       S3_BUCKET: sidekicks-artifacts
       CONTROL_PLANE_ROLE: control-node
       RUNTIME_NODE_ENDPOINT: http://runtime-node:4001
+      DEPLOY_QUEUE: sidekicks-deployments
     ports:
       - "3000:3000"
     depends_on:
@@ -38,6 +39,7 @@ services:
       WORKER_QUEUE: sidekicks-runs
       WORKER_RUNTIME: node
       RUNTIME_NODE_ENDPOINT: http://runtime-node:4001
+      DEPLOY_QUEUE: sidekicks-deployments
     depends_on:
       - postgres
       - redis
@@ -46,12 +48,58 @@ services:
       - runtime-node
     restart: unless-stopped
 
+  deployer:
+    build:
+      context: .
+      dockerfile: Dockerfile.deployer
+    env_file:
+      - .env.example
+    environment:
+      DATABASE_URL: postgresql://sidekicks:sidekicks@postgres:5432/sidekicks
+      REDIS_URL: redis://redis:6379
+      DEPLOY_QUEUE: sidekicks-deployments
+      DOCKER_NETWORK: sidekicks_default
+      DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - ${HOME}/.docker/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - postgres
+      - redis
+      - runtime-openclaw-template
+      - runtime-nanoclaw-template
+    restart: unless-stopped
+
   runtime-node:
     build:
       context: .
       dockerfile: Dockerfile.runtime
+    image: sidekicks-runtime-node:latest
     environment:
       PORT: 4001
+      RUNTIME_TEMPLATE_ID: tpl_appclaw
+      RUNTIME_NAME: AppClaw
+    restart: unless-stopped
+
+  runtime-openclaw-template:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    image: sidekicks-runtime-openclaw:latest
+    environment:
+      PORT: 4001
+      RUNTIME_TEMPLATE_ID: tpl_openclaw
+      RUNTIME_NAME: OpenClaw
+    restart: unless-stopped
+
+  runtime-nanoclaw-template:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    image: sidekicks-runtime-nanoclaw:latest
+    environment:
+      PORT: 4001
+      RUNTIME_TEMPLATE_ID: tpl_nanoclaw
+      RUNTIME_NAME: NanoClaw
     restart: unless-stopped
 
   postgres:

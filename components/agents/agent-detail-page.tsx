@@ -191,8 +191,13 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 </span>
               </div>
               {data.deployment ? (
-                <div className="mt-3 text-sm text-muted-foreground">
-                  Image: <span className="text-foreground/80">{data.deployment.image}</span>
+                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                  <div>
+                    Image: <span className="text-foreground/80">{data.deployment.image}</span>
+                  </div>
+                  <div>
+                    Container: <span className="font-mono text-foreground/80">{data.deployment.containerId ?? "pending"}</span>
+                  </div>
                 </div>
               ) : null}
             </div>

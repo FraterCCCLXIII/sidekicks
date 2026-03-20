@@ -1,6 +1,8 @@
 const http = require("http");
 
 const port = Number(process.env.PORT || 4001);
+const defaultTemplateId = process.env.RUNTIME_TEMPLATE_ID || "tpl_openclaw";
+const runtimeName = process.env.RUNTIME_NAME || "Runtime";
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -131,19 +133,19 @@ function runPayload(templateId, payload) {
 
 const server = http.createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
-    return sendJson(response, 200, { ok: true, service: "runtime-node" });
+    return sendJson(response, 200, { ok: true, service: "runtime-node", templateId: defaultTemplateId, name: runtimeName });
   }
 
   if (request.method === "POST" && request.url === "/chat") {
     const payload = await readJson(request);
     return sendJson(response, 200, {
-      reply: chatReply(payload.templateId, payload.message)
+      reply: chatReply(payload.templateId || defaultTemplateId, payload.message)
     });
   }
 
   if (request.method === "POST" && request.url === "/runs") {
     const payload = await readJson(request);
-    return sendJson(response, 200, runPayload(payload.templateId, payload));
+    return sendJson(response, 200, runPayload(payload.templateId || defaultTemplateId, payload));
   }
 
   return sendJson(response, 404, { message: "Not found" });

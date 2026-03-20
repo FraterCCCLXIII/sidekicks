@@ -68,6 +68,7 @@ export type AgentDetailView = AgentListItemView & {
 export type DeploymentView = {
   id: string;
   status: AgentDeployment["status"];
+  containerId: string | null;
   endpoint: string | null;
   image: string;
   runtimeSource: AgentDeployment["runtimeSource"];
@@ -180,6 +181,7 @@ function presentDeployment(deployment: AgentDeployment): DeploymentView {
   return {
     id: deployment.id,
     status: deployment.status,
+    containerId: deployment.containerId,
     endpoint: deployment.endpoint,
     image: deployment.image,
     runtimeSource: deployment.runtimeSource,

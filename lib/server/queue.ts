@@ -11,6 +11,14 @@ export type RunExecutionRequest = {
   requestedAt: string;
 };
 
+export type DeploymentRequest = {
+  deploymentId: string;
+  agentId: string;
+  templateId: string;
+  image: string;
+  requestedAt: string;
+};
+
 export type WorkerExecutionContext = {
   request: RunExecutionRequest;
   artifactBucket: string;
