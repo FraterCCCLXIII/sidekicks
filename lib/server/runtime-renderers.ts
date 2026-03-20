@@ -17,20 +17,15 @@ function jsonString(value: unknown) {
 
 function buildOpenClawConfig({
   agent,
-  template,
-  settings,
   profile,
   bindMode,
   allowUnconfigured
 }: {
   agent: AgentInstance;
-  template: AgentTemplate;
-  settings: SettingsData;
   profile: LlmProfile | null;
   bindMode: "loopback" | "lan";
   allowUnconfigured: boolean;
 }) {
-  const envMap = toPairMap(agent.envVars);
   const providerName = (profile?.provider || "OpenAI").toLowerCase();
   const provider = providerName.includes("anthropic") ? "anthropic" : "openai";
   const apiKeyEnvVar = profile?.keyEnvVar || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY");
@@ -45,22 +40,22 @@ function buildOpenClawConfig({
         dangerouslyAllowHostHeaderOriginFallback: bindMode === "lan"
       }
     },
-    agent: {
-      name: agent.name,
-      template: template.slug,
-      model: profile?.model || agent.model,
-      provider,
-      apiKeyEnvVar,
-      baseUrlEnvVar
-    },
-    workspace: {
-      region: settings.region,
-      memory: agent.memory,
-      tools: agent.tools
-    },
-    defaults: {
-      reportMode: envMap.get("REPORT_MODE") || "structured",
-      cacheTtl: envMap.get("CACHE_TTL") || "900"
+    agents: {
+      defaults: {
+        model: {
+          primary: profile?.model || agent.model,
+          fallbacks: []
+        },
+        models: {
+          [profile?.model || agent.model]: {
+            provider,
+            auth: {
+              apiKeyEnvVar,
+              ...(baseUrlEnvVar ? { baseUrlEnvVar } : {})
+            }
+          }
+        }
+      }
     }
   };
 }
@@ -78,8 +73,6 @@ function buildOpenClawLaunch({
 }): RenderedRuntimeLaunch {
   const config = buildOpenClawConfig({
     agent,
-    template,
-    settings,
     profile,
     bindMode: "lan",
     allowUnconfigured: true
