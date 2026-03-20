@@ -74,17 +74,16 @@ async function stopByName(name) {
   }
 }
 
-async function createRuntimeContainer(deployment, agentId) {
-  const name = containerNameForDeployment(deployment.id);
+function buildNativeTemplateEnv(deployment) {
+  if (deployment.template_id === "tpl_nanoclaw") {
+    return ["RUNTIME_TEMPLATE_ID=tpl_nanoclaw", "RUNTIME_NAME=NanoClaw", "PORT=4001"];
+  }
 
-  await stopByName(name);
+  return ["RUNTIME_TEMPLATE_ID=tpl_openclaw", "RUNTIME_NAME=OpenClaw", "PORT=4001"];
+}
 
-  const templateEnv =
-    deployment.template_id === "tpl_nanoclaw"
-      ? ["RUNTIME_TEMPLATE_ID=tpl_nanoclaw", "RUNTIME_NAME=NanoClaw", "PORT=4001"]
-      : ["RUNTIME_TEMPLATE_ID=tpl_openclaw", "RUNTIME_NAME=OpenClaw", "PORT=4001"];
-  const agentEnvVars = Array.isArray(deployment.agent_env_vars) ? deployment.agent_env_vars : [];
-  const mergedEnv = [...templateEnv];
+function buildAgentEnv(agentEnvVars) {
+  const mergedEnv = [];
 
   for (const pair of agentEnvVars) {
     if (!pair || typeof pair.key !== "string") {
@@ -93,6 +92,17 @@ async function createRuntimeContainer(deployment, agentId) {
 
     mergedEnv.push(`${pair.key}=${pair.value ?? ""}`);
   }
+
+  return mergedEnv;
+}
+
+async function createNativeRuntimeContainer(deployment, agentId) {
+  const name = containerNameForDeployment(deployment.id);
+
+  await stopByName(name);
+
+  const agentEnvVars = Array.isArray(deployment.agent_env_vars) ? deployment.agent_env_vars : [];
+  const mergedEnv = [...buildNativeTemplateEnv(deployment), ...buildAgentEnv(agentEnvVars)];
 
   const container = await docker.createContainer({
     Image: deployment.image,
@@ -128,6 +138,49 @@ async function createRuntimeContainer(deployment, agentId) {
   };
 }
 
+async function createUpstreamOpenClawContainer(deployment, agentId) {
+  const name = containerNameForDeployment(deployment.id);
+
+  await stopByName(name);
+
+  const agentEnvVars = Array.isArray(deployment.agent_env_vars) ? deployment.agent_env_vars : [];
+  const mergedEnv = [...buildAgentEnv(agentEnvVars), `OPENCLAW_HOME=/var/lib/openclaw`];
+  const container = await docker.createContainer({
+    Image: deployment.image,
+    name,
+    Env: mergedEnv,
+    ExposedPorts: {
+      "18789/tcp": {}
+    },
+    HostConfig: {
+      NetworkMode: config.dockerNetwork,
+      RestartPolicy: {
+        Name: "unless-stopped"
+      },
+      Binds: [`sidekicks_openclaw_${deployment.id}:/var/lib/openclaw`]
+    },
+    Labels: {
+      "sidekicks.agentId": agentId,
+      "sidekicks.deploymentId": deployment.id,
+      "sidekicks.runtimeAdapter": "openclaw-upstream"
+    }
+  });
+
+  await container.start();
+
+  log("upstream openclaw container started", {
+    deploymentId: deployment.id,
+    agentId,
+    image: deployment.image,
+    injectedEnvKeys: agentEnvVars.map((pair) => pair.key)
+  });
+
+  return {
+    containerId: container.id,
+    endpoint: `http://${name}:18789`
+  };
+}
+
 async function waitForHealth(endpoint) {
   for (let index = 0; index < 20; index += 1) {
     try {
@@ -138,6 +191,22 @@ async function waitForHealth(endpoint) {
       }
     } catch {
       await sleep(500);
+    }
+  }
+
+  return false;
+}
+
+async function waitForUpstreamOpenClaw(endpoint) {
+  for (let index = 0; index < 40; index += 1) {
+    try {
+      const response = await fetch(endpoint);
+
+      if (response.ok || response.status === 302 || response.status === 401 || response.status === 403) {
+        return true;
+      }
+    } catch {
+      await sleep(1000);
     }
   }
 
@@ -186,10 +255,11 @@ async function deployRuntime(request) {
     return;
   }
 
-  if (!["tpl_openclaw", "tpl_nanoclaw"].includes(deployment.template_id)) {
+  if (!["sidekicks-native", "openclaw-upstream"].includes(deployment.runtime_adapter)) {
     log("skipping deploy for unsupported template", {
       deploymentId: request.deploymentId,
-      templateId: deployment.template_id
+      templateId: deployment.template_id,
+      runtimeAdapter: deployment.runtime_adapter
     });
     return;
   }
@@ -198,8 +268,14 @@ async function deployRuntime(request) {
     await stopAndRemoveContainer(deployment.container_id);
   }
 
-  const started = await createRuntimeContainer(deployment, request.agentId);
-  const healthy = await waitForHealth(started.endpoint);
+  const started =
+    deployment.runtime_adapter === "openclaw-upstream"
+      ? await createUpstreamOpenClawContainer(deployment, request.agentId)
+      : await createNativeRuntimeContainer(deployment, request.agentId);
+  const healthy =
+    deployment.runtime_adapter === "openclaw-upstream"
+      ? await waitForUpstreamOpenClaw(started.endpoint)
+      : await waitForHealth(started.endpoint);
   const now = new Date().toISOString();
 
   await markDeploymentStatus(request.deploymentId, {

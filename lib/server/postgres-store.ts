@@ -105,6 +105,7 @@ function mapTemplate(row: DatabaseRow): AgentTemplate {
     packageVersion: String(row.package_version),
     sourceRepo: String(row.source_repo),
     runtimeImage: String(row.runtime_image),
+    runtimeAdapter: (row.runtime_adapter ?? "sidekicks-native") as AgentTemplate["runtimeAdapter"],
     isolationMode: row.isolation_mode as AgentTemplate["isolationMode"],
     supportedTools: parseJson<AgentTemplate["supportedTools"]>(row.supported_tools),
     defaultModel: String(row.default_model),
@@ -189,6 +190,7 @@ function mapDeployment(row: DatabaseRow): AgentDeployment {
     agentId: String(row.agent_id),
     templateId: String(row.template_id),
     image: String(row.image),
+    runtimeAdapter: (row.runtime_adapter ?? "sidekicks-native") as AgentDeployment["runtimeAdapter"],
     containerId: row.container_id ? String(row.container_id) : null,
     endpoint: row.endpoint ? String(row.endpoint) : null,
     runtimeSource: row.runtime_source as AgentDeployment["runtimeSource"],
@@ -231,20 +233,22 @@ function buildInitialSteps(): RunStep[] {
 }
 
 function buildDefaultDeployment(agent: AgentInstance, template: AgentTemplate, now: string): AgentDeployment {
-  const isDedicatedRuntime = template.id === "tpl_openclaw" || template.id === "tpl_nanoclaw";
+  const isDedicatedRuntime = template.runtimeAdapter === "sidekicks-native" && (template.id === "tpl_openclaw" || template.id === "tpl_nanoclaw");
+  const isUpstreamOpenClaw = template.runtimeAdapter === "openclaw-upstream";
 
   return {
     id: createId("dep"),
     agentId: agent.id,
     templateId: template.id,
     image: template.runtimeImage,
+    runtimeAdapter: template.runtimeAdapter,
     containerId: null,
-    endpoint: isDedicatedRuntime ? null : template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
-    runtimeSource: isDedicatedRuntime ? "container" : template.runtimeType === "node" ? "local-service" : "container",
-    status: isDedicatedRuntime ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
+    endpoint: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
+    runtimeSource: isDedicatedRuntime || isUpstreamOpenClaw ? "container" : template.runtimeType === "node" ? "local-service" : "container",
+    status: isDedicatedRuntime || isUpstreamOpenClaw ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
     createdAt: now,
     updatedAt: now,
-    lastHealthAt: isDedicatedRuntime ? null : template.runtimeType === "node" ? now : null
+    lastHealthAt: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? now : null
   };
 }
 
@@ -270,12 +274,12 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
       `
         INSERT INTO templates (
           id, slug, name, description, icon, kind, category, tags, package_name, package_version,
-          source_repo, runtime_image, isolation_mode, supported_tools, default_model, default_memory,
+          source_repo, runtime_image, runtime_adapter, isolation_mode, supported_tools, default_model, default_memory,
           runtime_type, deployment_config, featured, example_use_cases, config_schema
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
-          $11, $12, $13, $14::jsonb, $15, $16,
-          $17, $18::jsonb, $19, $20::jsonb, $21::jsonb
+          $11, $12, $13, $14, $15::jsonb, $16, $17,
+          $18, $19::jsonb, $20, $21::jsonb, $22::jsonb
         )
       `,
       [
@@ -291,6 +295,7 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
         template.packageVersion,
         template.sourceRepo,
         template.runtimeImage,
+        template.runtimeAdapter,
         template.isolationMode,
         toJson(template.supportedTools),
         template.defaultModel,
@@ -349,9 +354,9 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12::timestamptz
         )
       `,
       [
@@ -359,6 +364,7 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
         deployment.agentId,
         deployment.templateId,
         deployment.image,
+        deployment.runtimeAdapter,
         deployment.containerId,
         deployment.endpoint,
         deployment.runtimeSource,
@@ -507,6 +513,7 @@ export async function ensureDatabaseReady() {
           package_version text NOT NULL,
           source_repo text NOT NULL,
           runtime_image text NOT NULL,
+          runtime_adapter text NOT NULL DEFAULT 'sidekicks-native',
           isolation_mode text NOT NULL,
           supported_tools jsonb NOT NULL,
           default_model text NOT NULL,
@@ -590,6 +597,7 @@ export async function ensureDatabaseReady() {
           agent_id text NOT NULL REFERENCES agents(id),
           template_id text NOT NULL REFERENCES templates(id),
           image text NOT NULL,
+          runtime_adapter text NOT NULL DEFAULT 'sidekicks-native',
           container_id text,
           endpoint text,
           runtime_source text NOT NULL,
@@ -615,6 +623,12 @@ export async function ensureDatabaseReady() {
       `);
 
       await getPool().query(`
+        ALTER TABLE templates
+        ADD COLUMN IF NOT EXISTS runtime_adapter text NOT NULL DEFAULT 'sidekicks-native';
+
+        ALTER TABLE deployments
+        ADD COLUMN IF NOT EXISTS runtime_adapter text NOT NULL DEFAULT 'sidekicks-native';
+
         ALTER TABLE deployments
         ADD COLUMN IF NOT EXISTS container_id text;
       `);
@@ -633,19 +647,29 @@ export async function ensureDatabaseReady() {
               UPDATE templates
               SET runtime_image = CASE
                 WHEN id = 'tpl_openclaw' THEN 'sidekicks-runtime-openclaw:latest'
+                WHEN id = 'tpl_openclaw_upstream' THEN 'ghcr.io/openclaw/openclaw:latest'
                 WHEN id = 'tpl_nanoclaw' THEN 'sidekicks-runtime-nanoclaw:latest'
                 ELSE runtime_image
-              END
-              WHERE id IN ('tpl_openclaw', 'tpl_nanoclaw')
+              END,
+                  runtime_adapter = CASE
+                    WHEN id = 'tpl_openclaw_upstream' THEN 'openclaw-upstream'
+                    ELSE 'sidekicks-native'
+                  END
+              WHERE id IN ('tpl_openclaw', 'tpl_openclaw_upstream', 'tpl_nanoclaw', 'tpl_appclaw', 'tpl_marketing_claw', 'tpl_dataclaw')
             `
           );
           await client.query(
             `
               UPDATE deployments
               SET runtime_source = 'container',
+                  runtime_adapter = CASE
+                    WHEN template_id = 'tpl_openclaw_upstream' THEN 'openclaw-upstream'
+                    ELSE 'sidekicks-native'
+                  END,
                   status = 'provisioning',
                   image = CASE
                     WHEN template_id = 'tpl_openclaw' THEN 'sidekicks-runtime-openclaw:latest'
+                    WHEN template_id = 'tpl_openclaw_upstream' THEN 'ghcr.io/openclaw/openclaw:latest'
                     WHEN template_id = 'tpl_nanoclaw' THEN 'sidekicks-runtime-nanoclaw:latest'
                     ELSE image
                   END,
@@ -653,7 +677,7 @@ export async function ensureDatabaseReady() {
                   container_id = NULL,
                   updated_at = NOW(),
                   last_health_at = NULL
-              WHERE template_id IN ('tpl_openclaw', 'tpl_nanoclaw')
+              WHERE template_id IN ('tpl_openclaw', 'tpl_openclaw_upstream', 'tpl_nanoclaw')
                 AND runtime_source = 'local-service'
             `
           );

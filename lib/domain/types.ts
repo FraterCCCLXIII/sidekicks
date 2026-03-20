@@ -19,6 +19,7 @@ export type WorkerRuntimeStatus = "online" | "offline" | "degraded";
 export type ArtifactType = "report" | "build" | "dataset" | "markdown" | "log" | "app";
 export type DeploymentStatus = "provisioning" | "healthy" | "degraded" | "stopped" | "failed";
 export type ChatRole = "user" | "assistant" | "system";
+export type RuntimeAdapter = "sidekicks-native" | "openclaw-upstream";
 
 export type AgentEnvVar = {
   key: string;
@@ -38,6 +39,7 @@ export type AgentTemplate = {
   packageVersion: string;
   sourceRepo: string;
   runtimeImage: string;
+  runtimeAdapter: RuntimeAdapter;
   isolationMode: "process" | "container";
   supportedTools: AgentTool[];
   defaultModel: string;
@@ -154,6 +156,7 @@ export type AgentDeployment = {
   agentId: string;
   templateId: string;
   image: string;
+  runtimeAdapter: RuntimeAdapter;
   containerId: string | null;
   endpoint: string | null;
   runtimeSource: "local-service" | "container";
