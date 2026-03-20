@@ -7,10 +7,6 @@ import {
   type SettingsData
 } from "@/lib/domain/types";
 
-function toPairMap(envVars: AgentInstance["envVars"]) {
-  return new Map(envVars.map((pair) => [pair.key, pair.value]));
-}
-
 function jsonString(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
@@ -26,10 +22,7 @@ function buildOpenClawConfig({
   bindMode: "loopback" | "lan";
   allowUnconfigured: boolean;
 }) {
-  const providerName = (profile?.provider || "OpenAI").toLowerCase();
-  const provider = providerName.includes("anthropic") ? "anthropic" : "openai";
-  const apiKeyEnvVar = profile?.keyEnvVar || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY");
-  const baseUrlEnvVar = profile?.baseUrlEnvVar || (provider === "openai" ? "OPENAI_BASE_URL" : undefined);
+  const modelRef = profile?.model || agent.model;
 
   return {
     gateway: {
@@ -42,17 +35,14 @@ function buildOpenClawConfig({
     },
     agents: {
       defaults: {
+        workspace: "/tmp/openclaw-home/workspace",
         model: {
-          primary: profile?.model || agent.model,
+          primary: modelRef,
           fallbacks: []
         },
         models: {
-          [profile?.model || agent.model]: {
-            provider,
-            auth: {
-              apiKeyEnvVar,
-              ...(baseUrlEnvVar ? { baseUrlEnvVar } : {})
-            }
+          [modelRef]: {
+            alias: agent.name
           }
         }
       }
