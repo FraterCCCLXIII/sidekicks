@@ -601,6 +601,7 @@ const deployments: AgentDeployment[] = [
     endpoint: null,
     runtimeSource: "container",
     status: "provisioning",
+    renderedLaunch: null,
     createdAt: isoHoursAgo(12),
     updatedAt: isoMinutesAgo(2),
     lastHealthAt: null
@@ -615,6 +616,7 @@ const deployments: AgentDeployment[] = [
     endpoint: getDefaultNodeRuntimeEndpoint(),
     runtimeSource: "local-service",
     status: "healthy",
+    renderedLaunch: null,
     createdAt: isoHoursAgo(10),
     updatedAt: isoMinutesAgo(17),
     lastHealthAt: isoMinutesAgo(3)
@@ -629,6 +631,7 @@ const deployments: AgentDeployment[] = [
     endpoint: null,
     runtimeSource: "container",
     status: "provisioning",
+    renderedLaunch: null,
     createdAt: isoHoursAgo(8),
     updatedAt: isoMinutesAgo(50),
     lastHealthAt: null
@@ -643,6 +646,7 @@ const deployments: AgentDeployment[] = [
     endpoint: null,
     runtimeSource: "container",
     status: "provisioning",
+    renderedLaunch: null,
     createdAt: isoHoursAgo(7),
     updatedAt: isoHoursAgo(2),
     lastHealthAt: null
@@ -657,6 +661,7 @@ const deployments: AgentDeployment[] = [
     endpoint: null,
     runtimeSource: "container",
     status: "provisioning",
+    renderedLaunch: null,
     createdAt: isoHoursAgo(6),
     updatedAt: isoHoursAgo(1),
     lastHealthAt: null

@@ -56,6 +56,18 @@ function containerNameForDeployment(deploymentId) {
   return `sidekicks-agent-${deploymentId.replace(/[^a-zA-Z0-9_.-]/g, "-")}`;
 }
 
+function parseJson(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return JSON.parse(value);
+  }
+
+  return value;
+}
+
 async function stopAndRemoveContainer(containerId) {
   try {
     const container = docker.getContainer(containerId);
@@ -72,6 +84,28 @@ async function stopByName(name) {
   for (const item of containers) {
     await stopAndRemoveContainer(item.Id);
   }
+}
+
+async function pullImage(image) {
+  await new Promise((resolve, reject) => {
+    docker.pull(image, (error, stream) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      docker.modem.followProgress(stream, (progressError) => {
+        if (progressError) {
+          reject(progressError);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  });
+
+  log("image pulled", { image });
 }
 
 function buildNativeTemplateEnv(deployment) {
@@ -94,6 +128,41 @@ function buildAgentEnv(agentEnvVars) {
   }
 
   return mergedEnv;
+}
+
+async function writeRenderedFiles(container, files) {
+  for (const file of files || []) {
+    const directory = file.path.split("/").slice(0, -1).join("/") || "/";
+    const escapedDirectory = directory.replaceAll('"', '\\"');
+    const escapedPath = file.path.replaceAll('"', '\\"');
+    const encodedContent = Buffer.from(file.content, "utf8").toString("base64");
+    const command = [
+      "sh",
+      "-lc",
+      `mkdir -p \"${escapedDirectory}\" && printf '%s' '${encodedContent}' | base64 -d > \"${escapedPath}\"`
+    ];
+    const exec = await container.exec({
+      Cmd: command,
+      AttachStdout: true,
+      AttachStderr: true
+    });
+    const stream = await exec.start({});
+    await new Promise((resolve, reject) => {
+      container.modem.followProgress(stream, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    const result = await exec.inspect();
+
+    if (result.ExitCode !== 0) {
+      throw new Error(`Failed to write rendered file ${file.path}`);
+    }
+  }
 }
 
 async function createNativeRuntimeContainer(deployment, agentId) {
@@ -138,17 +207,19 @@ async function createNativeRuntimeContainer(deployment, agentId) {
   };
 }
 
-async function createUpstreamOpenClawContainer(deployment, agentId) {
+async function createRenderedRuntimeContainer(deployment, agentId) {
   const name = containerNameForDeployment(deployment.id);
 
   await stopByName(name);
+  await pullImage(deployment.image);
 
-  const agentEnvVars = Array.isArray(deployment.agent_env_vars) ? deployment.agent_env_vars : [];
-  const mergedEnv = [...buildAgentEnv(agentEnvVars), `OPENCLAW_HOME=/var/lib/openclaw`];
+  const renderedLaunch = parseJson(deployment.rendered_launch) || { env: [], files: [], command: null };
+  const env = buildAgentEnv(renderedLaunch.env || []);
   const container = await docker.createContainer({
     Image: deployment.image,
     name,
-    Env: mergedEnv,
+    Env: env,
+    Cmd: renderedLaunch.command || undefined,
     ExposedPorts: {
       "18789/tcp": {}
     },
@@ -156,23 +227,25 @@ async function createUpstreamOpenClawContainer(deployment, agentId) {
       NetworkMode: config.dockerNetwork,
       RestartPolicy: {
         Name: "unless-stopped"
-      },
-      Binds: [`sidekicks_openclaw_${deployment.id}:/var/lib/openclaw`]
+      }
     },
     Labels: {
       "sidekicks.agentId": agentId,
       "sidekicks.deploymentId": deployment.id,
-      "sidekicks.runtimeAdapter": "openclaw-upstream"
+      "sidekicks.runtimeAdapter": deployment.runtime_adapter
     }
   });
 
   await container.start();
+  await writeRenderedFiles(container, renderedLaunch.files || []);
 
-  log("upstream openclaw container started", {
+  log("rendered runtime container started", {
     deploymentId: deployment.id,
     agentId,
     image: deployment.image,
-    injectedEnvKeys: agentEnvVars.map((pair) => pair.key)
+    adapter: deployment.runtime_adapter,
+    renderedEnvKeys: (renderedLaunch.env || []).map((pair) => pair.key),
+    renderedFilePaths: (renderedLaunch.files || []).map((file) => file.path)
   });
 
   return {
@@ -237,6 +310,23 @@ async function markDeploymentStatus(deploymentId, values) {
   });
 }
 
+async function failDeployment(deploymentId, error) {
+  const now = new Date().toISOString();
+
+  await markDeploymentStatus(deploymentId, {
+    status: "failed",
+    containerId: null,
+    endpoint: null,
+    updatedAt: now,
+    lastHealthAt: null
+  });
+
+  log("deployment failed", {
+    deploymentId,
+    error: error instanceof Error ? error.message : String(error)
+  });
+}
+
 async function deployRuntime(request) {
   const deployment = await withTransaction(async (client) => {
     const result = await client.query(
@@ -261,6 +351,7 @@ async function deployRuntime(request) {
       templateId: deployment.template_id,
       runtimeAdapter: deployment.runtime_adapter
     });
+    await failDeployment(request.deploymentId, new Error(`Unsupported runtime adapter: ${deployment.runtime_adapter}`));
     return;
   }
 
@@ -270,7 +361,7 @@ async function deployRuntime(request) {
 
   const started =
     deployment.runtime_adapter === "openclaw-upstream"
-      ? await createUpstreamOpenClawContainer(deployment, request.agentId)
+      ? await createRenderedRuntimeContainer(deployment, request.agentId)
       : await createNativeRuntimeContainer(deployment, request.agentId);
   const healthy =
     deployment.runtime_adapter === "openclaw-upstream"
@@ -307,13 +398,17 @@ async function reconcilePendingDeployments() {
   });
 
   for (const row of result.rows) {
-    await deployRuntime({
-      deploymentId: row.id,
-      agentId: row.agent_id,
-      templateId: row.template_id,
-      image: row.image,
-      requestedAt: new Date().toISOString()
-    });
+    try {
+      await deployRuntime({
+        deploymentId: row.id,
+        agentId: row.agent_id,
+        templateId: row.template_id,
+        image: row.image,
+        requestedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      await failDeployment(row.id, error);
+    }
   }
 }
 
@@ -324,7 +419,12 @@ async function startDeployer() {
   const worker = new Worker(
     config.queue,
     async (job) => {
-      await deployRuntime(job.data);
+      try {
+        await deployRuntime(job.data);
+      } catch (error) {
+        await failDeployment(job.data.deploymentId, error);
+        throw error;
+      }
     },
     {
       connection: redis

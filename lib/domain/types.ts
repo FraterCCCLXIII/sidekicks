@@ -151,6 +151,18 @@ export type WorkerRuntime = {
   status: WorkerRuntimeStatus;
 };
 
+export type RenderedRuntimeFile = {
+  path: string;
+  content: string;
+};
+
+export type RenderedRuntimeLaunch = {
+  env: AgentEnvVar[];
+  files: RenderedRuntimeFile[];
+  command: string[] | null;
+  metadata?: Record<string, string>;
+};
+
 export type AgentDeployment = {
   id: string;
   agentId: string;
@@ -161,6 +173,7 @@ export type AgentDeployment = {
   endpoint: string | null;
   runtimeSource: "local-service" | "container";
   status: DeploymentStatus;
+  renderedLaunch: RenderedRuntimeLaunch | null;
   createdAt: string;
   updatedAt: string;
   lastHealthAt: string | null;

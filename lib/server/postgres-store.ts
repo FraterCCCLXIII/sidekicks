@@ -20,6 +20,7 @@ import {
 import { getDefaultNodeRuntimeEndpoint } from "@/lib/server/config";
 import { createId } from "@/lib/server/ids";
 import { type DeploymentRequest, type RunExecutionRequest } from "@/lib/server/queue";
+import { renderRuntimeLaunch } from "@/lib/server/runtime-renderers";
 import { createSeedState } from "@/lib/server/seed";
 import { getPool } from "@/lib/server/db";
 
@@ -195,6 +196,7 @@ function mapDeployment(row: DatabaseRow): AgentDeployment {
     endpoint: row.endpoint ? String(row.endpoint) : null,
     runtimeSource: row.runtime_source as AgentDeployment["runtimeSource"],
     status: row.status as AgentDeployment["status"],
+    renderedLaunch: row.rendered_launch ? parseJson<AgentDeployment["renderedLaunch"]>(row.rendered_launch) : null,
     createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
     updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
     lastHealthAt: toIsoString(row.last_health_at)
@@ -246,6 +248,7 @@ function buildDefaultDeployment(agent: AgentInstance, template: AgentTemplate, n
     endpoint: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
     runtimeSource: isDedicatedRuntime || isUpstreamOpenClaw ? "container" : template.runtimeType === "node" ? "local-service" : "container",
     status: isDedicatedRuntime || isUpstreamOpenClaw ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
+    renderedLaunch: null,
     createdAt: now,
     updatedAt: now,
     lastHealthAt: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? now : null
@@ -354,9 +357,9 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz
         )
       `,
       [
@@ -369,6 +372,7 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
         deployment.endpoint,
         deployment.runtimeSource,
         deployment.status,
+        deployment.renderedLaunch ? toJson(deployment.renderedLaunch) : null,
         deployment.createdAt,
         deployment.updatedAt,
         deployment.lastHealthAt
@@ -448,6 +452,70 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
   await client.query("INSERT INTO settings (id, data) VALUES ($1, $2::jsonb)", ["default", toJson(state.settings)]);
 }
 
+async function upsertSeedTemplates(client: PoolClient, templates: ControlPlaneState["templates"]) {
+  for (const template of templates) {
+    await client.query(
+      `
+        INSERT INTO templates (
+          id, slug, name, description, icon, kind, category, tags, package_name, package_version,
+          source_repo, runtime_image, runtime_adapter, isolation_mode, supported_tools, default_model, default_memory,
+          runtime_type, deployment_config, featured, example_use_cases, config_schema
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
+          $11, $12, $13, $14, $15::jsonb, $16, $17,
+          $18, $19::jsonb, $20, $21::jsonb, $22::jsonb
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          slug = EXCLUDED.slug,
+          name = EXCLUDED.name,
+          description = EXCLUDED.description,
+          icon = EXCLUDED.icon,
+          kind = EXCLUDED.kind,
+          category = EXCLUDED.category,
+          tags = EXCLUDED.tags,
+          package_name = EXCLUDED.package_name,
+          package_version = EXCLUDED.package_version,
+          source_repo = EXCLUDED.source_repo,
+          runtime_image = EXCLUDED.runtime_image,
+          runtime_adapter = EXCLUDED.runtime_adapter,
+          isolation_mode = EXCLUDED.isolation_mode,
+          supported_tools = EXCLUDED.supported_tools,
+          default_model = EXCLUDED.default_model,
+          default_memory = EXCLUDED.default_memory,
+          runtime_type = EXCLUDED.runtime_type,
+          deployment_config = EXCLUDED.deployment_config,
+          featured = EXCLUDED.featured,
+          example_use_cases = EXCLUDED.example_use_cases,
+          config_schema = EXCLUDED.config_schema
+      `,
+      [
+        template.id,
+        template.slug,
+        template.name,
+        template.description,
+        template.icon,
+        template.kind,
+        template.category,
+        toJson(template.tags),
+        template.packageName,
+        template.packageVersion,
+        template.sourceRepo,
+        template.runtimeImage,
+        template.runtimeAdapter,
+        template.isolationMode,
+        toJson(template.supportedTools),
+        template.defaultModel,
+        template.defaultMemory,
+        template.runtimeType,
+        toJson(template.deploymentConfig),
+        template.featured,
+        toJson(template.exampleUseCases),
+        toJson(template.configSchema)
+      ]
+    );
+  }
+}
+
 async function backfillDeployments(client: PoolClient) {
   const result = await client.query(
     `
@@ -472,9 +540,9 @@ async function backfillDeployments(client: PoolClient) {
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz
         )
       `,
       [
@@ -482,10 +550,12 @@ async function backfillDeployments(client: PoolClient) {
         deployment.agentId,
         deployment.templateId,
         deployment.image,
+        deployment.runtimeAdapter,
         deployment.containerId,
         deployment.endpoint,
         deployment.runtimeSource,
         deployment.status,
+        deployment.renderedLaunch ? toJson(deployment.renderedLaunch) : null,
         deployment.createdAt,
         deployment.updatedAt,
         deployment.lastHealthAt
@@ -602,6 +672,7 @@ export async function ensureDatabaseReady() {
           endpoint text,
           runtime_source text NOT NULL,
           status text NOT NULL,
+          rendered_launch jsonb,
           created_at timestamptz NOT NULL,
           updated_at timestamptz NOT NULL,
           last_health_at timestamptz
@@ -630,6 +701,9 @@ export async function ensureDatabaseReady() {
         ADD COLUMN IF NOT EXISTS runtime_adapter text NOT NULL DEFAULT 'sidekicks-native';
 
         ALTER TABLE deployments
+        ADD COLUMN IF NOT EXISTS rendered_launch jsonb;
+
+        ALTER TABLE deployments
         ADD COLUMN IF NOT EXISTS container_id text;
       `);
 
@@ -641,6 +715,7 @@ export async function ensureDatabaseReady() {
         });
       } else {
         await withTransaction(async (client) => {
+          await upsertSeedTemplates(client, createSeedState().templates);
           await backfillDeployments(client);
           await client.query(
             `
@@ -765,6 +840,13 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
       region: settings.region
     };
     const deployment = buildDefaultDeployment(agent, template, now);
+    deployment.renderedLaunch = renderRuntimeLaunch({
+      agent,
+      template,
+      settings,
+      profile: selectedProfile,
+      deployment
+    });
 
     await client.query(
       `
@@ -797,9 +879,9 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
     await client.query(
       `
         INSERT INTO deployments (
-          id, agent_id, template_id, image, container_id, endpoint, runtime_source, status, created_at, updated_at, last_health_at
+          id, agent_id, template_id, image, runtime_adapter, container_id, endpoint, runtime_source, status, rendered_launch, created_at, updated_at, last_health_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz
         )
       `,
       [
@@ -807,10 +889,12 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
         deployment.agentId,
         deployment.templateId,
         deployment.image,
+        deployment.runtimeAdapter,
         deployment.containerId,
         deployment.endpoint,
         deployment.runtimeSource,
         deployment.status,
+        deployment.renderedLaunch ? toJson(deployment.renderedLaunch) : null,
         deployment.createdAt,
         deployment.updatedAt,
         deployment.lastHealthAt
