@@ -5,6 +5,7 @@ import {
   type Artifact,
   type ChatMessage,
   type ControlPlaneState,
+  type LlmProfile,
   type Run,
   type SettingsData
 } from "@/lib/domain/types";
@@ -341,5 +342,11 @@ export function presentDashboard(state: ControlPlaneState): DashboardView {
 }
 
 export function presentSettings(settings: SettingsData) {
-  return settings;
+  return {
+    ...settings,
+    llmProfiles: settings.llmProfiles.map((profile: LlmProfile) => ({
+      ...profile,
+      apiKeySecret: ""
+    }))
+  };
 }

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  addLlmProfile,
   createAgent,
   getAgentChat,
   createJob,
@@ -96,3 +97,4 @@ export function useSettings() {
 }
 
 export { createAgent, createJob, sendAgentChatMessage };
+export { addLlmProfile };

@@ -179,6 +179,7 @@ export type DeployRequest = {
   tools: AgentTool[];
   memory: AgentMemoryType;
   runtimeType: RuntimeType;
+  llmProfileId: string | null;
   envVars: AgentEnvVar[];
 };
 
@@ -192,6 +193,19 @@ export type LlmProfile = {
   scopes: string[];
   lastUsed: string;
   apiKeyPreview: string;
+  keyEnvVar: string;
+  baseUrlEnvVar?: string;
+  apiKeySecret: string;
+  baseUrl?: string;
+};
+
+export type LlmProfileInput = {
+  name: string;
+  provider: string;
+  model: string;
+  authType: string;
+  apiKey: string;
+  baseUrl?: string;
 };
 
 export type SettingsData = {

@@ -1,4 +1,4 @@
-import { type Artifact, type ControlPlaneState, type DeployRequest, type Job, type Run, type RunOutput, type RunStep } from "@/lib/domain/types";
+import { type Artifact, type ControlPlaneState, type DeployRequest, type Job, type LlmProfile, type LlmProfileInput, type Run, type RunOutput, type RunStep, type SettingsData } from "@/lib/domain/types";
 import { type RunExecutionRequest } from "@/lib/server/queue";
 import { createSeedState } from "@/lib/server/seed";
 
@@ -27,6 +27,76 @@ export function getControlPlaneState() {
 
 export function listState() {
   return getControlPlaneState();
+}
+
+function buildProfileSecretPreview(secret: string) {
+  const trimmed = secret.trim();
+
+  if (!trimmed) {
+    return "configured";
+  }
+
+  if (trimmed.length <= 8) {
+    return `${trimmed.slice(0, 2)}...${trimmed.slice(-2)}`;
+  }
+
+  return `${trimmed.slice(0, 7)}...${trimmed.slice(-4)}`;
+}
+
+function envVarForProvider(provider: string) {
+  if (provider === "Anthropic") {
+    return { keyEnvVar: "ANTHROPIC_API_KEY" };
+  }
+
+  if (provider === "Azure OpenAI") {
+    return {
+      keyEnvVar: "AZURE_OPENAI_API_KEY",
+      baseUrlEnvVar: "AZURE_OPENAI_BASE_URL"
+    };
+  }
+
+  if (provider === "OpenRouter") {
+    return { keyEnvVar: "OPENROUTER_API_KEY" };
+  }
+
+  return { keyEnvVar: "OPENAI_API_KEY" };
+}
+
+export function updateSettings(update: Partial<SettingsData>) {
+  const state = getControlPlaneState();
+  state.settings = {
+    ...state.settings,
+    ...update
+  };
+
+  return state.settings;
+}
+
+export function addLlmProfile(input: LlmProfileInput): SettingsData {
+  const state = getControlPlaneState();
+  const providerEnv = envVarForProvider(input.provider);
+  const nextProfile: LlmProfile = {
+    id: `profile_${Math.random().toString(36).slice(2, 10)}`,
+    name: input.name.trim(),
+    provider: input.provider,
+    model: input.model,
+    authType: input.authType,
+    status: "active",
+    scopes: ["Deployments", "Runs"],
+    lastUsed: "never",
+    apiKeyPreview: buildProfileSecretPreview(input.apiKey),
+    keyEnvVar: providerEnv.keyEnvVar,
+    baseUrlEnvVar: providerEnv.baseUrlEnvVar,
+    apiKeySecret: input.apiKey.trim(),
+    baseUrl: input.baseUrl?.trim() || undefined
+  };
+
+  state.settings = {
+    ...state.settings,
+    llmProfiles: [nextProfile, ...state.settings.llmProfiles]
+  };
+
+  return state.settings;
 }
 
 function getScheduledRuns() {

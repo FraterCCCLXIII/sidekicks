@@ -1,4 +1,4 @@
-import { type DeployRequest, type SettingsData } from "@/lib/domain/types";
+import { type DeployRequest, type LlmProfileInput, type SettingsData } from "@/lib/domain/types";
 import { fetchJson } from "@/lib/api/client";
 import {
   type AgentDetailView,
@@ -80,4 +80,11 @@ export function getArtifacts() {
 
 export function getSettings() {
   return fetchJson<SettingsData>("/api/settings");
+}
+
+export function addLlmProfile(input: LlmProfileInput) {
+  return fetchJson<SettingsData>("/api/settings", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
 }

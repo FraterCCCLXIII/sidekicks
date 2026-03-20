@@ -662,7 +662,9 @@ const settings: SettingsData = {
       status: "active",
       scopes: ["Deployments", "Runs", "Templates"],
       lastUsed: "2 min ago",
-      apiKeyPreview: "sk-proj-...91A2"
+      apiKeyPreview: "sk-proj-...91A2",
+      keyEnvVar: "OPENAI_API_KEY",
+      apiKeySecret: "sk-proj-demo-91A2"
     },
     {
       id: "profile_anthropic_ops",
@@ -673,7 +675,9 @@ const settings: SettingsData = {
       status: "active",
       scopes: ["Runs", "Fallback routing"],
       lastUsed: "14 min ago",
-      apiKeyPreview: "sk-ant-...D7KF"
+      apiKeyPreview: "sk-ant-...D7KF",
+      keyEnvVar: "ANTHROPIC_API_KEY",
+      apiKeySecret: "sk-ant-demo-D7KF"
     },
     {
       id: "profile_azure_eval",
@@ -684,7 +688,11 @@ const settings: SettingsData = {
       status: "limited",
       scopes: ["Staging", "Evaluations"],
       lastUsed: "3 hr ago",
-      apiKeyPreview: "managed identity"
+      apiKeyPreview: "azure-...eval",
+      keyEnvVar: "AZURE_OPENAI_API_KEY",
+      baseUrlEnvVar: "AZURE_OPENAI_BASE_URL",
+      apiKeySecret: "azure-openai-demo-eval",
+      baseUrl: "https://example-resource.openai.azure.com"
     }
   ]
 };

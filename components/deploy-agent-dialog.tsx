@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Rocket } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { createAgent } from "@/hooks/use-sidekicks-data";
+import { createAgent, useSettings } from "@/hooks/use-sidekicks-data";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,11 +60,13 @@ export function DeployAgentDialog({
     [template]
   );
   const queryClient = useQueryClient();
+  const { data: settings } = useSettings();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(`${baseName}-1`);
   const [model, setModel] = useState(template?.model ?? "GPT-4o");
   const [memory, setMemory] = useState<AgentMemoryType>("redis");
   const [tools, setTools] = useState<AgentTool[]>(template?.tools ?? ["web", "files"]);
+  const [llmProfileId, setLlmProfileId] = useState<string | null>(null);
   const [envVars, setEnvVars] = useState([
     { key: "REPORT_MODE", value: "verbose" },
     { key: "CACHE_TTL", value: "300" }
@@ -75,6 +77,15 @@ export function DeployAgentDialog({
     setModel(template?.model ?? "GPT-4o");
     setTools(template?.tools ?? ["web", "files"]);
   }, [baseName, template]);
+
+  useEffect(() => {
+    if (!settings?.llmProfiles.length) {
+      setLlmProfileId(null);
+      return;
+    }
+
+    setLlmProfileId((current) => current ?? settings.llmProfiles[0].id);
+  }, [settings]);
 
   const mutation = useMutation({
     mutationFn: createAgent,
@@ -140,6 +151,22 @@ export function DeployAgentDialog({
               </select>
             </label>
           </div>
+
+          <label className="space-y-2 text-sm">
+            <span className="text-muted-foreground">LLM Profile</span>
+            <select
+              className="flex h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm outline-none focus:border-white/20"
+              value={llmProfileId ?? ""}
+              onChange={(event) => setLlmProfileId(event.target.value || null)}
+            >
+              <option value="">No saved profile</option>
+              {(settings?.llmProfiles ?? []).map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} • {profile.provider} • {profile.apiKeyPreview}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <div className="space-y-3">
             <div className="text-sm text-muted-foreground">Tools</div>
@@ -239,6 +266,7 @@ export function DeployAgentDialog({
                 tools,
                 memory,
                 runtimeType: template?.runtimeType ?? "node",
+                llmProfileId,
                 envVars
               })
             }

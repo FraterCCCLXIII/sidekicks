@@ -1,6 +1,6 @@
-import { type DeployRequest } from "@/lib/domain/types";
+import { type DeployRequest, type LlmProfileInput } from "@/lib/domain/types";
 import { presentAgent, presentAgentDetail, presentArtifact, presentChatMessage, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createChatExchange, createJobAndRun, listState } from "@/lib/server/backend";
+import { createAgentInstance, createChatExchange, createJobAndRun, createLlmProfile, listState } from "@/lib/server/backend";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -108,4 +108,8 @@ export async function getDashboard() {
 
 export async function getSettings() {
   return wait(presentSettings((await listState()).settings));
+}
+
+export async function addLlmProfile(input: LlmProfileInput) {
+  return wait(presentSettings(await createLlmProfile(input)), 120);
 }

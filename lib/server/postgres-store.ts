@@ -9,6 +9,8 @@ import {
   type ControlPlaneState,
   type DeployRequest,
   type Job,
+  type LlmProfile,
+  type LlmProfileInput,
   type Run,
   type RunOutput,
   type RunStep,
@@ -54,6 +56,39 @@ function parseJson<T>(value: unknown) {
   }
 
   return value as T;
+}
+
+function buildProfileSecretPreview(secret: string) {
+  const trimmed = secret.trim();
+
+  if (!trimmed) {
+    return "configured";
+  }
+
+  if (trimmed.length <= 8) {
+    return `${trimmed.slice(0, 2)}...${trimmed.slice(-2)}`;
+  }
+
+  return `${trimmed.slice(0, 7)}...${trimmed.slice(-4)}`;
+}
+
+function envVarForProvider(provider: string) {
+  if (provider === "Anthropic") {
+    return { keyEnvVar: "ANTHROPIC_API_KEY" };
+  }
+
+  if (provider === "Azure OpenAI") {
+    return {
+      keyEnvVar: "AZURE_OPENAI_API_KEY",
+      baseUrlEnvVar: "AZURE_OPENAI_BASE_URL"
+    };
+  }
+
+  if (provider === "OpenRouter") {
+    return { keyEnvVar: "OPENROUTER_API_KEY" };
+  }
+
+  return { keyEnvVar: "OPENAI_API_KEY" };
 }
 
 function mapTemplate(row: DatabaseRow): AgentTemplate {
@@ -676,6 +711,18 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
     const template = mapTemplate(templateRow);
     const settings = parseJson<SettingsData>(settingsResult.rows[0]?.data);
     const now = new Date().toISOString();
+    const selectedProfile = input.llmProfileId
+      ? settings.llmProfiles.find((profile) => profile.id === input.llmProfileId) ?? null
+      : null;
+    const profileEnvVars = selectedProfile
+      ? [
+          { key: selectedProfile.keyEnvVar, value: selectedProfile.apiKeySecret },
+          ...(selectedProfile.baseUrlEnvVar && selectedProfile.baseUrl
+            ? [{ key: selectedProfile.baseUrlEnvVar, value: selectedProfile.baseUrl }]
+            : [])
+        ]
+      : [];
+    const mergedEnvVars = [...profileEnvVars, ...input.envVars.filter((entry) => !profileEnvVars.some((env) => env.key === entry.key))];
     const agent: AgentInstance = {
       id: createId("agent"),
       name: input.agentName,
@@ -686,7 +733,7 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
       tools: input.tools,
       memory: input.memory,
       runtimeType: input.runtimeType,
-      envVars: input.envVars,
+      envVars: mergedEnvVars,
       jobsCount: 0,
       createdAt: now,
       updatedAt: now,
@@ -759,6 +806,39 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
             }
           : null
     };
+  });
+}
+
+export async function createPostgresLlmProfile(input: LlmProfileInput): Promise<SettingsData> {
+  await ensureDatabaseReady();
+
+  return withTransaction(async (client) => {
+    const settingsResult = await client.query("SELECT data FROM settings WHERE id = $1 FOR UPDATE", ["default"]);
+    const settings = parseJson<SettingsData>(settingsResult.rows[0]?.data);
+    const providerEnv = envVarForProvider(input.provider);
+    const nextProfile: LlmProfile = {
+      id: createId("profile"),
+      name: input.name.trim(),
+      provider: input.provider,
+      model: input.model,
+      authType: input.authType,
+      status: "active",
+      scopes: ["Deployments", "Runs"],
+      lastUsed: "never",
+      apiKeyPreview: buildProfileSecretPreview(input.apiKey),
+      keyEnvVar: providerEnv.keyEnvVar,
+      baseUrlEnvVar: providerEnv.baseUrlEnvVar,
+      apiKeySecret: input.apiKey.trim(),
+      baseUrl: input.baseUrl?.trim() || undefined
+    };
+    const nextSettings: SettingsData = {
+      ...settings,
+      llmProfiles: [nextProfile, ...settings.llmProfiles]
+    };
+
+    await client.query("UPDATE settings SET data = $2::jsonb WHERE id = $1", ["default", toJson(nextSettings)]);
+
+    return nextSettings;
   });
 }
 

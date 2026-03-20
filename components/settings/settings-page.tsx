@@ -1,5 +1,6 @@
 "use client";
 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BellRing,
   Bot,
@@ -17,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useSettings } from "@/hooks/use-sidekicks-data";
+import { addLlmProfile, useSettings } from "@/hooks/use-sidekicks-data";
 import { type LlmProfile } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
@@ -110,6 +111,7 @@ function ToggleRow({
 
 export function SettingsPage() {
   const { data } = useSettings();
+  const queryClient = useQueryClient();
   const [profiles, setProfiles] = useState<LlmProfile[]>([]);
   const [defaultModel, setDefaultModel] = useState("");
   const [fallbackModel, setFallbackModel] = useState("");
@@ -128,6 +130,20 @@ export function SettingsPage() {
     model: "GPT-4o",
     authType: "API key",
     apiKey: ""
+  });
+  const addProfileMutation = useMutation({
+    mutationFn: addLlmProfile,
+    onSuccess: async (nextSettings) => {
+      setProfiles(nextSettings.llmProfiles);
+      setDraftProfile((current) => ({
+        name: "",
+        provider: current.provider,
+        model: providerModels[current.provider][0],
+        authType: "API key",
+        apiKey: ""
+      }));
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+    }
   });
 
   useEffect(() => {
@@ -158,25 +174,13 @@ export function SettingsPage() {
       return;
     }
 
-    const nextProfile: LlmProfile = {
-      id: `profile_${Date.now()}`,
+    addProfileMutation.mutate({
       name: draftProfile.name.trim(),
       provider: draftProfile.provider,
       model: draftProfile.model,
       authType: draftProfile.authType,
-      status: "active",
-      scopes: ["Runs", "Templates"],
-      lastUsed: "just now",
-      apiKeyPreview: `${draftProfile.apiKey.slice(0, 4)}...${draftProfile.apiKey.slice(-4)}`
-    };
-
-    setProfiles((current) => [nextProfile, ...current]);
-    setDraftProfile({
-      name: "",
-      provider: draftProfile.provider,
-      model: providerModels[draftProfile.provider][0],
-      authType: "API key",
-      apiKey: ""
+      apiKey: draftProfile.apiKey,
+      baseUrl: draftProfile.provider === "Azure OpenAI" ? "https://example-resource.openai.azure.com" : undefined
     });
   }
 

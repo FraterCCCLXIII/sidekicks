@@ -1,8 +1,8 @@
-import { type DeployRequest, type Job } from "@/lib/domain/types";
+import { type DeployRequest, type Job, type LlmProfileInput } from "@/lib/domain/types";
 import { isPostgresBackend } from "@/lib/server/config";
 import { enqueueAgentDeployment } from "@/lib/server/deploy-queue";
-import { createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, listState as listMemoryState } from "@/lib/server/store";
-import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, listPostgresState } from "@/lib/server/postgres-store";
+import { addLlmProfile as addMemoryLlmProfile, createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, listState as listMemoryState } from "@/lib/server/store";
+import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, listPostgresState } from "@/lib/server/postgres-store";
 import { enqueueRunExecution } from "@/lib/server/run-queue";
 
 export async function listState() {
@@ -64,4 +64,12 @@ export async function createChatExchange(agentId: string, content: string) {
   }
 
   return createPostgresChatExchange(agentId, content);
+}
+
+export async function createLlmProfile(input: LlmProfileInput) {
+  if (isPostgresBackend()) {
+    return createPostgresLlmProfile(input);
+  }
+
+  return addMemoryLlmProfile(input);
 }
