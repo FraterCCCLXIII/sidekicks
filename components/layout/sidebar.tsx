@@ -4,6 +4,7 @@ import { Bot, Database, LayoutDashboard, PlaySquare, Settings2, Sparkles } from 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useClusterSummary } from "@/hooks/use-sidekicks-data";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -46,6 +47,7 @@ function LogoMark() {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: clusterSummary } = useClusterSummary();
 
   return (
     <>
@@ -78,14 +80,21 @@ export function Sidebar() {
             })}
           </nav>
 
-          <div className="panel-muted p-4">
-            <div className="text-sm font-medium">Cluster</div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              4 nodes online, 19 queued jobs across all regions.
-            </div>
-          </div>
-        </div>
-      </aside>
+	          <div className="panel-muted p-4">
+	            <div className="text-sm font-medium">Cluster</div>
+	            <div className="mt-1 text-sm text-muted-foreground">
+	              {clusterSummary ? (
+	                <>
+	                  {clusterSummary.nodesOnline} {clusterSummary.nodesOnline === 1 ? "node" : "nodes"} online,{" "}
+	                  {clusterSummary.queuedJobs} {clusterSummary.queuedJobs === 1 ? "queued job" : "queued jobs"} across all regions.
+	                </>
+	              ) : (
+	                "Fetching cluster status…"
+	              )}
+	            </div>
+	          </div>
+	        </div>
+	      </aside>
 
       <div className="xl:hidden">
         <div className="sticky top-0 z-40 border-b border-white/[0.08] bg-card/[0.78] px-4 py-4 backdrop-blur-xl">

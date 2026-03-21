@@ -158,6 +158,7 @@ function mapAgent(row: DatabaseRow): AgentInstance {
     templateId: String(row.template_id),
     templateName: String(row.template_name),
     status: row.status as AgentInstance["status"],
+    isPaused: Boolean(row.is_paused),
     model: String(row.model),
     tools: parseJson<AgentInstance["tools"]>(row.tools),
     memory: row.memory as AgentInstance["memory"],
@@ -492,11 +493,11 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
     await client.query(
       `
         INSERT INTO agents (
-          id, name, template_id, template_name, status, model, tools, memory, runtime_type,
+          id, name, template_id, template_name, status, is_paused, model, tools, memory, runtime_type,
           env_vars, jobs_count, created_at, updated_at, last_run_at, region
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9,
-          $10::jsonb, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15
+          $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
+          $11::jsonb, $12, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16
         )
       `,
       [
@@ -505,6 +506,7 @@ async function insertSeedData(client: PoolClient, state: ControlPlaneState) {
         agent.templateId,
         agent.templateName,
         agent.status,
+        agent.isPaused,
         agent.model,
         toJson(agent.tools),
         agent.memory,
@@ -769,6 +771,7 @@ export async function ensureDatabaseReady() {
           template_id text NOT NULL REFERENCES templates(id),
           template_name text NOT NULL,
           status text NOT NULL,
+          is_paused boolean NOT NULL DEFAULT false,
           model text NOT NULL,
           tools jsonb NOT NULL,
           memory text NOT NULL,
@@ -854,6 +857,9 @@ export async function ensureDatabaseReady() {
           level text NOT NULL,
           message text NOT NULL
         );
+
+        ALTER TABLE agents
+        ADD COLUMN IF NOT EXISTS is_paused boolean NOT NULL DEFAULT false;
 
         CREATE TABLE IF NOT EXISTS chat_messages (
           id text PRIMARY KEY,
@@ -1001,6 +1007,7 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
       templateId: template.id,
       templateName: template.name,
       status: "idle",
+      isPaused: false,
       model: input.model,
       tools: input.tools,
       memory: input.memory,
@@ -1024,11 +1031,11 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
     await client.query(
       `
         INSERT INTO agents (
-          id, name, template_id, template_name, status, model, tools, memory, runtime_type,
+          id, name, template_id, template_name, status, is_paused, model, tools, memory, runtime_type,
           env_vars, jobs_count, created_at, updated_at, last_run_at, region
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9,
-          $10::jsonb, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15
+          $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
+          $11::jsonb, $12, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16
         )
       `,
       [
@@ -1037,6 +1044,7 @@ export async function createPostgresAgentInstance(input: DeployRequest): Promise
         agent.templateId,
         agent.templateName,
         agent.status,
+        agent.isPaused,
         agent.model,
         toJson(agent.tools),
         agent.memory,
@@ -1179,6 +1187,44 @@ export async function deletePostgresLlmProfile(profileId: string): Promise<Setti
   });
 }
 
+export async function setPostgresAgentPaused(agentId: string, paused: boolean, force = false): Promise<AgentInstance | null> {
+  await ensureDatabaseReady();
+
+  return withTransaction(async (client) => {
+    const agentResult = await client.query("SELECT * FROM agents WHERE id = $1 FOR UPDATE", [agentId]);
+    const agentRow = agentResult.rows[0];
+
+    if (!agentRow) {
+      return null;
+    }
+
+    const agent = mapAgent(agentRow);
+    agent.isPaused = paused;
+
+    let nextStatus = agent.status;
+    if (!paused && agent.status === "paused") {
+      nextStatus = "idle";
+    } else if (paused) {
+      nextStatus = force || agent.status !== "running" ? "paused" : agent.status;
+    }
+
+    const updatedAt = new Date().toISOString();
+
+    await client.query(
+      `
+        UPDATE agents
+        SET status = $2, is_paused = $3, updated_at = $4::timestamptz
+        WHERE id = $1
+      `,
+      [agentId, nextStatus, paused, updatedAt]
+    );
+    agent.status = nextStatus;
+    agent.updatedAt = updatedAt;
+
+    return agent;
+  });
+}
+
 export async function createPostgresJobAndRun(
   input: {
     agentId: string;
@@ -1202,6 +1248,11 @@ export async function createPostgresJobAndRun(
     }
 
     const agent = mapAgent(agentRow);
+
+    if (agent.isPaused) {
+      throw new Error("Agent is paused");
+    }
+
     const deployment = deploymentResult.rows[0] ? mapDeployment(deploymentResult.rows[0]) : null;
     const createdAt = new Date().toISOString();
     const agentName = input.agentName?.trim() || agent.name;

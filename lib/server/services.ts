@@ -1,6 +1,21 @@
 import { type DeployRequest, type LlmProfileInput, type LlmProfileUpdateInput } from "@/lib/domain/types";
-import { presentAgent, presentAgentDetail, presentArtifact, presentChatMessage, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createChatExchange, createJobAndRun, createLlmProfile, deleteAgentInstance, deleteLlmProfile, listDeploymentLogs, listState, redeployAgentInstance, updateLlmProfile } from "@/lib/server/backend";
+import { isPostgresBackend } from "@/lib/server/config";
+import { getDeployQueue } from "@/lib/server/deploy-queue";
+import { type ClusterSummaryView, presentAgent, presentAgentDetail, presentArtifact, presentChatMessage, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
+import {
+  createAgentInstance,
+  createChatExchange,
+  createJobAndRun,
+  createLlmProfile,
+  deleteAgentInstance,
+  deleteLlmProfile,
+  listDeploymentLogs,
+  listState,
+  redeployAgentInstance,
+  setAgentPaused as setAgentPausedBackend,
+  updateLlmProfile
+} from "@/lib/server/backend";
+import { getRunQueue } from "@/lib/server/run-queue";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -103,7 +118,87 @@ export async function sendChatMessage(agentId: string, content: string) {
 }
 
 export async function getDashboard() {
-  return wait(presentDashboard(await listState()));
+  const state = await listState();
+  const base = presentDashboard(state);
+  let jobsRunning = base.stats.jobsRunning;
+  const activeAgentIds = new Set<string>();
+
+  state.agents.forEach((agent) => {
+    if (agent.status === "running") {
+      activeAgentIds.add(agent.id);
+    }
+  });
+
+  state.jobs.forEach((job) => {
+    if (job.status === "running" || job.status === "queued") {
+      activeAgentIds.add(job.agentId);
+    }
+  });
+
+  state.deployments.forEach((deployment) => {
+    if (deployment.status === "healthy" || deployment.status === "provisioning" || deployment.status === "degraded") {
+      activeAgentIds.add(deployment.agentId);
+    }
+  });
+
+  if (isPostgresBackend()) {
+    try {
+      const runQueue = getRunQueue();
+      const runJobCounts = await runQueue.getJobCounts("waiting", "active", "delayed");
+      jobsRunning = (runJobCounts.waiting ?? 0) + (runJobCounts.active ?? 0) + (runJobCounts.delayed ?? 0);
+    } catch {
+      // Keep state-based count if queue lookup fails.
+    }
+  }
+
+  return wait({
+    ...base,
+    stats: {
+      ...base.stats,
+      activeAgents: activeAgentIds.size,
+      jobsRunning
+    }
+  });
+}
+
+export async function getClusterSummary(): Promise<ClusterSummaryView> {
+  const updatedAt = new Date().toISOString();
+
+  if (isPostgresBackend()) {
+    try {
+      const runQueue = getRunQueue();
+      const deployQueue = getDeployQueue();
+
+      const [runJobCounts, deployJobCounts, runWorkers, deployWorkers] = await Promise.all([
+        runQueue.getJobCounts("waiting", "delayed"),
+        deployQueue.getJobCounts("waiting", "delayed"),
+        runQueue.getWorkersCount(),
+        deployQueue.getWorkersCount()
+      ]);
+
+      return wait({
+        nodesOnline: runWorkers + deployWorkers,
+        queuedJobs:
+          (runJobCounts.waiting ?? 0) +
+          (runJobCounts.delayed ?? 0) +
+          (deployJobCounts.waiting ?? 0) +
+          (deployJobCounts.delayed ?? 0),
+        source: "queue",
+        updatedAt
+      });
+    } catch {
+      // Fall through to state-based snapshot.
+    }
+  }
+
+  const state = await listState();
+
+  return wait({
+    nodesOnline: state.runtimes.filter((runtime) => runtime.status === "online").length,
+    queuedJobs: state.jobs.filter((job) => job.status === "queued").length,
+    source: "state",
+    updatedAt
+  });
 }
 
 export async function getSettings() {
@@ -128,6 +223,18 @@ export async function removeAgent(agentId: string) {
 
 export async function redeployAgent(agentId: string) {
   return wait(await redeployAgentInstance(agentId), 120);
+}
+
+export async function setAgentPaused(agentId: string, paused: boolean, force = false) {
+  const updated = await setAgentPausedBackend(agentId, paused, force);
+
+  if (!updated) {
+    return null;
+  }
+
+  const state = await listState();
+  const agent = state.agents.find((item) => item.id === agentId);
+  return wait(agent ? presentAgentDetail(state, agent) : null, 120);
 }
 
 export async function getDeploymentLogs(agentId: string) {

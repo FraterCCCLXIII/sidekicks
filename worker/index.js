@@ -685,7 +685,7 @@ async function finalizeRun(request) {
 
       run.status = "completed";
       job.status = "completed";
-      agent.status = "idle";
+      agent.status = agent.is_paused ? "paused" : "idle";
       run.steps[2].state = "completed";
       run.steps[3].state = "completed";
       run.steps[3].detail = "Artifacts persisted to storage metadata.";

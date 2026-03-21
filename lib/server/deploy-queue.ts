@@ -11,7 +11,7 @@ function getGlobalState() {
   return globalThis as GlobalState;
 }
 
-function getDeployQueue() {
+export function getDeployQueue() {
   const globalState = getGlobalState();
 
   if (!globalState.__sidekicksDeployQueue) {

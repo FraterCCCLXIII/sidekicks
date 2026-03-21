@@ -1,8 +1,27 @@
 import { type DeployRequest, type Job, type LlmProfileInput, type LlmProfileUpdateInput } from "@/lib/domain/types";
 import { isPostgresBackend } from "@/lib/server/config";
 import { enqueueAgentDeployment } from "@/lib/server/deploy-queue";
-import { addLlmProfile as addMemoryLlmProfile, createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, deleteAgentInstance as deleteMemoryAgentInstance, listState as listMemoryState } from "@/lib/server/store";
-import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, deletePostgresAgent, deletePostgresLlmProfile, listDeploymentLogsForAgent as listPostgresDeploymentLogsForAgent, listPostgresState, redeployPostgresAgent, updatePostgresLlmProfile } from "@/lib/server/postgres-store";
+import {
+  addLlmProfile as addMemoryLlmProfile,
+  createAgentInstance as createMemoryAgentInstance,
+  createJobAndRun as createMemoryJobAndRun,
+  deleteAgentInstance as deleteMemoryAgentInstance,
+  listState as listMemoryState,
+  setAgentPaused as setMemoryAgentPaused
+} from "@/lib/server/store";
+import {
+  createPostgresAgentInstance,
+  createPostgresChatExchange,
+  createPostgresJobAndRun,
+  createPostgresLlmProfile,
+  deletePostgresAgent,
+  deletePostgresLlmProfile,
+  listDeploymentLogsForAgent as listPostgresDeploymentLogsForAgent,
+  listPostgresState,
+  redeployPostgresAgent,
+  setPostgresAgentPaused,
+  updatePostgresLlmProfile
+} from "@/lib/server/postgres-store";
 import { enqueueRunExecution } from "@/lib/server/run-queue";
 
 export async function listState() {
@@ -96,6 +115,14 @@ export async function deleteAgentInstance(agentId: string) {
   }
 
   return deleteMemoryAgentInstance(agentId);
+}
+
+export async function setAgentPaused(agentId: string, paused: boolean, force = false) {
+  if (isPostgresBackend()) {
+    return setPostgresAgentPaused(agentId, paused, force);
+  }
+
+  return setMemoryAgentPaused(agentId, paused, force);
 }
 
 export async function redeployAgentInstance(agentId: string) {

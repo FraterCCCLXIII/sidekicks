@@ -7,6 +7,7 @@ import {
   createAgent,
   deleteLlmProfile,
   deleteAgent,
+  getClusterSummary,
   getAgentDeploymentLogs,
   redeployAgent,
   getAgentChat,
@@ -21,7 +22,8 @@ import {
   getSettings,
   sendAgentChatMessage,
   getTemplates,
-  updateLlmProfile
+  updateLlmProfile,
+  setAgentPaused
 } from "@/lib/api/control-plane";
 
 export function useDashboardData() {
@@ -29,6 +31,14 @@ export function useDashboardData() {
     queryKey: ["dashboard"],
     queryFn: getDashboardData,
     refetchInterval: 2000
+  });
+}
+
+export function useClusterSummary() {
+  return useQuery({
+    queryKey: ["cluster-summary"],
+    queryFn: getClusterSummary,
+    refetchInterval: 5000
   });
 }
 
@@ -110,5 +120,5 @@ export function useSettings() {
   });
 }
 
-export { createAgent, createJob, deleteAgent, redeployAgent, sendAgentChatMessage };
+export { createAgent, createJob, deleteAgent, redeployAgent, sendAgentChatMessage, setAgentPaused };
 export { addLlmProfile, updateLlmProfile, deleteLlmProfile };

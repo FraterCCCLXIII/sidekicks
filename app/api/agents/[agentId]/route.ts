@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAgent, redeployAgent, removeAgent } from "@/lib/server/services";
+import { getAgent, redeployAgent, removeAgent, setAgentPaused } from "@/lib/server/services";
 
 export const dynamic = "force-dynamic";
 
@@ -50,4 +50,25 @@ export async function POST(
   }
 
   return NextResponse.json(result);
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ agentId: string }> }
+) {
+  const { agentId } = await params;
+  const body = (await request.json().catch(() => ({}))) as { paused?: boolean; mode?: "now" | "after" };
+
+  if (typeof body.paused !== "boolean") {
+    return NextResponse.json({ message: "Invalid pause state" }, { status: 400 });
+  }
+
+  const force = body.mode === "now";
+  const agent = await setAgentPaused(agentId, body.paused, force);
+
+  if (!agent) {
+    return NextResponse.json({ message: "Agent not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(agent);
 }

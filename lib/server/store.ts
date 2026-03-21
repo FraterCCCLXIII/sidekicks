@@ -124,6 +124,7 @@ export function createAgentInstance(input: DeployRequest) {
     templateId: template.id,
     templateName: template.name,
     status: "idle" as const,
+    isPaused: false,
     model: input.model,
     tools: input.tools,
     memory: input.memory,
@@ -333,7 +334,7 @@ function scheduleRunExecution(request: RunExecutionRequest) {
     } else {
       run.status = "completed";
       job.status = "completed";
-      agent.status = "idle";
+      agent.status = agent.isPaused ? "paused" : "idle";
       run.steps[2].state = "completed";
       run.steps[3].state = "completed";
       run.steps[3].detail = "Artifacts persisted to storage metadata.";
@@ -357,6 +358,10 @@ export function createJobAndRun(input: Omit<Job, "id" | "createdAt" | "startedAt
 
   if (!agent) {
     throw new Error("Agent not found");
+  }
+
+  if (agent.isPaused) {
+    throw new Error("Agent is paused");
   }
 
   const nextJob = createJobRecord(input);
@@ -398,4 +403,27 @@ export function createJobAndRun(input: Omit<Job, "id" | "createdAt" | "startedAt
   });
 
   return { job: nextJob, run: nextRun };
+}
+
+export function setAgentPaused(agentId: string, paused: boolean, force = false) {
+  const state = getControlPlaneState();
+  const agent = state.agents.find((item) => item.id === agentId);
+
+  if (!agent) {
+    return null;
+  }
+
+  agent.isPaused = paused;
+
+  if (!paused && agent.status === "paused") {
+    agent.status = "idle";
+  } else if (paused) {
+    if (force || agent.status !== "running") {
+      agent.status = "paused";
+    }
+  }
+
+  agent.updatedAt = new Date().toISOString();
+
+  return agent;
 }

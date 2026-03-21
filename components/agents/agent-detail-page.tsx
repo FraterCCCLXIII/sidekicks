@@ -6,13 +6,24 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { createJob, deleteAgent, redeployAgent, sendAgentChatMessage, useAgent, useAgentChat, useAgentDeploymentLogs } from "@/hooks/use-sidekicks-data";
+import {
+  createJob,
+  deleteAgent,
+  redeployAgent,
+  sendAgentChatMessage,
+  setAgentPaused,
+  useAgent,
+  useAgentChat,
+  useAgentDeploymentLogs
+} from "@/hooks/use-sidekicks-data";
 import { statusLabel, statusTone } from "@/lib/presentation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export function AgentDetailPage({ agentId }: { agentId: string }) {
   const { data } = useAgent(agentId);
@@ -22,10 +33,14 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
   const [title, setTitle] = useState("New run");
   const [prompt, setPrompt] = useState("");
   const [chatInput, setChatInput] = useState("");
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [pauseModalOpen, setPauseModalOpen] = useState(false);
+  const isPaused = data?.isPaused ?? false;
 
   const jobMutation = useMutation({
     mutationFn: createJob,
     onSuccess: async (result) => {
+      setJobError(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["agents"] }),
@@ -35,6 +50,13 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
         queryClient.invalidateQueries({ queryKey: ["artifacts"] })
       ]);
       router.push(`/runs/${result.run.id}`);
+    },
+    onError: (error) => {
+      if (error instanceof Error && error.message.includes("409")) {
+        setJobError("Agent is paused. Enable it to run jobs.");
+      } else {
+        setJobError("Unable to create a job right now.");
+      }
     }
   });
   const chatMutation = useMutation({
@@ -72,6 +94,32 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
       ]);
     }
   });
+  const pauseMutation = useMutation({
+    mutationFn: ({ paused, mode }: { paused: boolean; mode?: "now" | "after" }) =>
+      setAgentPaused(agentId, paused, mode),
+    onSuccess: async () => {
+      setJobError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["agents"] }),
+        queryClient.invalidateQueries({ queryKey: ["agents", agentId] })
+      ]);
+    }
+  });
+
+  const handleToggle = (checked: boolean) => {
+    if (checked) {
+      pauseMutation.mutate({ paused: false });
+      return;
+    }
+
+    if (data.status === "running") {
+      setPauseModalOpen(true);
+      return;
+    }
+
+    pauseMutation.mutate({ paused: true, mode: "now" });
+  };
   const { data: deploymentLogs } = useAgentDeploymentLogs(
     agentId,
     data?.deployment?.status === "provisioning" || redeployMutation.isPending
@@ -87,7 +135,16 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
         <Link href="/agents" className="text-sm text-foreground/70 hover:text-foreground">
           Back to agents
         </Link>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Enabled</span>
+            <Switch
+              checked={!isPaused}
+              disabled={pauseMutation.isPending}
+              label="Toggle agent enabled state"
+              onCheckedChange={handleToggle}
+            />
+          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -191,6 +248,16 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
               </TabsContent>
 
               <TabsContent value="job" className="space-y-4">
+                {jobError ? (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                    {jobError}
+                  </div>
+                ) : null}
+                {isPaused ? (
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-sm text-muted-foreground">
+                    This agent is paused. Enable it to run new jobs.
+                  </div>
+                ) : null}
                 <label className="space-y-2 text-sm">
                   <span className="text-muted-foreground">Job title</span>
                   <Input value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -215,7 +282,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                       }
                     })
                   }
-                  disabled={jobMutation.isPending || !title.trim() || !prompt.trim()}
+                  disabled={jobMutation.isPending || isPaused || !title.trim() || !prompt.trim()}
                 >
                   <PlayCircle className="h-4 w-4" />
                   {jobMutation.isPending ? "Queuing..." : "Create Job"}
@@ -364,6 +431,48 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
           ))}
         </CardContent>
       </Card>
+
+      <Dialog open={pauseModalOpen} onOpenChange={setPauseModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pause running agent?</DialogTitle>
+            <DialogDescription>
+              This agent is currently executing a run. Choose whether to pause immediately or wait until the run finishes.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2 text-sm text-muted-foreground">
+            Pause now will mark the agent as paused right away, but the current run will still finish.
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setPauseModalOpen(false)}
+              disabled={pauseMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPauseModalOpen(false);
+                pauseMutation.mutate({ paused: true, mode: "after" });
+              }}
+              disabled={pauseMutation.isPending}
+            >
+              Pause after run
+            </Button>
+            <Button
+              onClick={() => {
+                setPauseModalOpen(false);
+                pauseMutation.mutate({ paused: true, mode: "now" });
+              }}
+              disabled={pauseMutation.isPending}
+            >
+              Pause now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

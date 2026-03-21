@@ -5,12 +5,17 @@ import {
   type AgentListItemView,
   type ArtifactListItemView,
   type ChatMessageView,
+  type ClusterSummaryView,
   type DashboardView,
   type RunDetailView,
   type RunListItemView,
   type TemplateDetailView,
   type TemplateListItemView
 } from "@/lib/server/presenters";
+
+export function getClusterSummary() {
+  return fetchJson<ClusterSummaryView>("/api/cluster");
+}
 
 export function getDashboardData() {
   return fetchJson<DashboardView>("/api/dashboard");
@@ -42,6 +47,13 @@ export function redeployAgent(agentId: string) {
   return fetchJson<{ queued: boolean; request?: { deploymentId: string } }>(`/api/agents/${agentId}`, {
     method: "POST",
     body: JSON.stringify({ action: "redeploy" })
+  });
+}
+
+export function setAgentPaused(agentId: string, paused: boolean, mode?: "now" | "after") {
+  return fetchJson<AgentDetailView>(`/api/agents/${agentId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ paused, mode })
   });
 }
 

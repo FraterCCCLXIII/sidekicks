@@ -11,7 +11,7 @@ function getGlobalState() {
   return globalThis as GlobalState;
 }
 
-function getRunQueue() {
+export function getRunQueue() {
   const globalState = getGlobalState();
 
   if (!globalState.__sidekicksRunQueue) {

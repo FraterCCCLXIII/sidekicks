@@ -20,6 +20,13 @@ export type DashboardView = {
   templates: TemplateListItemView[];
 };
 
+export type ClusterSummaryView = {
+  nodesOnline: number;
+  queuedJobs: number;
+  source: "queue" | "state";
+  updatedAt: string;
+};
+
 export type TemplateListItemView = {
   id: string;
   slug: string;
@@ -49,6 +56,7 @@ export type AgentListItemView = {
   name: string;
   template: string;
   status: AgentInstance["status"];
+  isPaused: boolean;
   jobs: number;
   region: string;
   lastRunAt: string | null;
@@ -257,11 +265,14 @@ export function presentTemplateDetail(template: AgentTemplate): TemplateDetailVi
 }
 
 export function presentAgent(agent: AgentInstance): AgentListItemView {
+  const status = agent.isPaused && agent.status === "idle" ? "paused" : agent.status;
+
   return {
     id: agent.id,
     name: agent.name,
     template: agent.templateName,
-    status: agent.status,
+    status,
+    isPaused: agent.isPaused,
     jobs: agent.jobsCount,
     region: agent.region,
     lastRunAt: agent.lastRunAt

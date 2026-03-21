@@ -20,5 +20,13 @@ export async function POST(request: Request) {
     };
   };
 
-  return NextResponse.json(await createJob(body), { status: 201 });
+  try {
+    return NextResponse.json(await createJob(body), { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Agent is paused") {
+      return NextResponse.json({ message: "Agent is paused. Enable it to run jobs." }, { status: 409 });
+    }
+
+    throw error;
+  }
 }

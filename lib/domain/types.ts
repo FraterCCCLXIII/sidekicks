@@ -64,6 +64,7 @@ export type AgentInstance = {
   templateId: string;
   templateName: string;
   status: AgentInstanceStatus;
+  isPaused: boolean;
   model: string;
   tools: AgentTool[];
   memory: AgentMemoryType;
