@@ -895,47 +895,16 @@ export async function ensureDatabaseReady() {
         });
       } else {
         await withTransaction(async (client) => {
-          await upsertSeedTemplates(client, createSeedState().templates);
-          await backfillDeployments(client);
-          await client.query(
-            `
-              UPDATE templates
-              SET runtime_image = CASE
-                WHEN id = 'tpl_openclaw' THEN 'sidekicks-runtime-openclaw:latest'
-                WHEN id = 'tpl_openclaw_upstream' THEN 'ghcr.io/openclaw/openclaw:latest'
-                WHEN id = 'tpl_nanoclaw' THEN 'sidekicks-runtime-nanoclaw:latest'
-                ELSE runtime_image
-              END,
-                  runtime_adapter = CASE
-                    WHEN id = 'tpl_openclaw_upstream' THEN 'openclaw-upstream'
-                    ELSE 'sidekicks-native'
-                  END
-              WHERE id IN ('tpl_openclaw', 'tpl_openclaw_upstream', 'tpl_nanoclaw', 'tpl_appclaw', 'tpl_marketing_claw', 'tpl_dataclaw')
-            `
-          );
-          await client.query(
-            `
-              UPDATE deployments
-              SET runtime_source = 'container',
-                  runtime_adapter = CASE
-                    WHEN template_id = 'tpl_openclaw_upstream' THEN 'openclaw-upstream'
-                    ELSE 'sidekicks-native'
-                  END,
-                  status = 'provisioning',
-                  image = CASE
-                    WHEN template_id = 'tpl_openclaw' THEN 'sidekicks-runtime-openclaw:latest'
-                    WHEN template_id = 'tpl_openclaw_upstream' THEN 'ghcr.io/openclaw/openclaw:latest'
-                    WHEN template_id = 'tpl_nanoclaw' THEN 'sidekicks-runtime-nanoclaw:latest'
-                    ELSE image
-                  END,
-                  endpoint = NULL,
-                  container_id = NULL,
-                  updated_at = NOW(),
-                  last_health_at = NULL
-              WHERE template_id IN ('tpl_openclaw', 'tpl_openclaw_upstream', 'tpl_nanoclaw')
-                AND runtime_source = 'local-service'
-            `
-          );
+          // Only upsert the seed template(s) when a DB already exists.
+          // Do not mutate existing agents/deployments on boot.
+          const seed = createSeedState();
+          await upsertSeedTemplates(client, seed.templates);
+
+          const settingsExists = await client.query("SELECT 1 FROM settings WHERE id = $1", ["default"]);
+
+          if (settingsExists.rowCount === 0) {
+            await client.query("INSERT INTO settings (id, data) VALUES ($1, $2::jsonb)", ["default", toJson(seed.settings)]);
+          }
         });
       }
     })();
@@ -947,11 +916,10 @@ export async function ensureDatabaseReady() {
 export async function listPostgresState(): Promise<ControlPlaneState> {
   await ensureDatabaseReady();
 
-  const [templatesResult, agentsResult, deploymentsResult, deploymentLogsResult, jobsResult, runsResult, artifactsResult, messagesResult, runtimesResult, settingsResult] = await Promise.all([
+  const [templatesResult, agentsResult, deploymentsResult, jobsResult, runsResult, artifactsResult, messagesResult, runtimesResult, settingsResult] = await Promise.all([
     getPool().query("SELECT * FROM templates ORDER BY featured DESC, name ASC"),
     getPool().query("SELECT * FROM agents ORDER BY updated_at DESC"),
     getPool().query("SELECT * FROM deployments ORDER BY updated_at DESC"),
-    getPool().query("SELECT * FROM deployment_logs ORDER BY timestamp ASC"),
     getPool().query("SELECT * FROM jobs ORDER BY created_at DESC"),
     getPool().query("SELECT * FROM runs ORDER BY created_at DESC"),
     getPool().query("SELECT * FROM artifacts ORDER BY created_at DESC"),
@@ -964,7 +932,7 @@ export async function listPostgresState(): Promise<ControlPlaneState> {
     templates: templatesResult.rows.map(mapTemplate),
     agents: agentsResult.rows.map(mapAgent),
     deployments: deploymentsResult.rows.map(mapDeployment),
-    deploymentLogs: deploymentLogsResult.rows.map(mapDeploymentLog),
+    deploymentLogs: [],
     jobs: jobsResult.rows.map(mapJob),
     runs: runsResult.rows.map(mapRun),
     artifacts: artifactsResult.rows.map(mapArtifact),
