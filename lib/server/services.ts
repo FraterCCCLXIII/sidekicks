@@ -1,6 +1,6 @@
-import { type DeployRequest, type LlmProfileInput } from "@/lib/domain/types";
+import { type DeployRequest, type LlmProfileInput, type LlmProfileUpdateInput } from "@/lib/domain/types";
 import { presentAgent, presentAgentDetail, presentArtifact, presentChatMessage, presentDashboard, presentRun, presentRunDetail, presentSettings, presentTemplate, presentTemplateDetail } from "@/lib/server/presenters";
-import { createAgentInstance, createChatExchange, createJobAndRun, createLlmProfile, deleteAgentInstance, listDeploymentLogs, listState, redeployAgentInstance } from "@/lib/server/backend";
+import { createAgentInstance, createChatExchange, createJobAndRun, createLlmProfile, deleteAgentInstance, deleteLlmProfile, listDeploymentLogs, listState, redeployAgentInstance, updateLlmProfile } from "@/lib/server/backend";
 
 function wait<T>(value: T, delay = 120): Promise<T> {
   return new Promise((resolve) => {
@@ -112,6 +112,14 @@ export async function getSettings() {
 
 export async function addLlmProfile(input: LlmProfileInput) {
   return wait(presentSettings(await createLlmProfile(input)), 120);
+}
+
+export async function editLlmProfile(input: LlmProfileUpdateInput) {
+  return wait(presentSettings(await updateLlmProfile(input)), 120);
+}
+
+export async function removeLlmProfile(profileId: string) {
+  return wait(presentSettings(await deleteLlmProfile(profileId)), 120);
 }
 
 export async function removeAgent(agentId: string) {

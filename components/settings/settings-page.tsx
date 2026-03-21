@@ -1,26 +1,23 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  BellRing,
-  Bot,
-  Database,
-  KeyRound,
-  Layers3,
-  Plus,
-  Rocket,
-  Settings2,
-  ShieldCheck
-} from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { Edit3, KeyRound, Plus, Settings2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { addLlmProfile, useSettings } from "@/hooks/use-sidekicks-data";
+import { addLlmProfile, deleteLlmProfile, updateLlmProfile, useSettings } from "@/hooks/use-sidekicks-data";
 import { type LlmProfile } from "@/lib/domain/types";
-import { cn } from "@/lib/utils";
 
 type DraftProfile = {
   name: string;
@@ -28,16 +25,8 @@ type DraftProfile = {
   model: string;
   authType: string;
   apiKey: string;
+  baseUrl: string;
 };
-
-const navItems = [
-  { id: "general", label: "General", icon: Settings2 },
-  { id: "profiles", label: "LLM Profiles", icon: KeyRound },
-  { id: "routing", label: "Routing", icon: Bot },
-  { id: "storage", label: "Storage", icon: Database },
-  { id: "deployments", label: "Deployments", icon: Rocket },
-  { id: "security", label: "Security", icon: ShieldCheck }
-] as const;
 
 const fieldClassName =
   "flex h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm text-foreground outline-none transition focus:border-white/20 focus:ring-2 focus:ring-white/10";
@@ -49,63 +38,184 @@ const providerModels: Record<string, string[]> = {
   Groq: ["Llama 3.3 70B", "Mixtral 8x7B"]
 };
 
-function SectionCard({
-  id,
-  title,
-  description,
-  children
+function blankDraft(): DraftProfile {
+  return {
+    name: "",
+    provider: "OpenAI",
+    model: "GPT-4o",
+    authType: "API key",
+    apiKey: "",
+    baseUrl: ""
+  };
+}
+
+function ProfileDialog({
+  mode,
+  profile,
+  onSave,
+  trigger
 }: {
-  id: string;
-  title: string;
-  description: string;
-  children: ReactNode;
+  mode: "add" | "edit";
+  profile?: LlmProfile;
+  onSave: (draft: DraftProfile) => Promise<void>;
+  trigger: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<DraftProfile>(blankDraft());
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (mode === "edit" && profile) {
+      setDraft({
+        name: profile.name,
+        provider: profile.provider,
+        model: profile.model,
+        authType: profile.authType,
+        apiKey: "",
+        baseUrl: profile.baseUrl ?? ""
+      });
+      return;
+    }
+
+    setDraft(blankDraft());
+  }, [mode, open, profile]);
+
+  async function handleSave() {
+    await onSave(draft);
+    setOpen(false);
+  }
+
   return (
-    <section id={id} className="scroll-mt-8">
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        <CardContent>{children}</CardContent>
-      </Card>
-    </section>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{mode === "add" ? "Add LLM profile" : "Edit LLM profile"}</DialogTitle>
+          <DialogDescription>
+            Register an authenticated provider for routing, fallback, or environment-specific usage.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 px-6 pb-2">
+          <label className="space-y-2 text-sm">
+            <span className="text-muted-foreground">Profile name</span>
+            <Input
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              placeholder="e.g. OpenAI Production"
+            />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2 text-sm">
+              <span className="text-muted-foreground">Provider</span>
+              <select
+                className={fieldClassName}
+                value={draft.provider}
+                onChange={(event) => {
+                  const provider = event.target.value;
+                  setDraft((current) => ({
+                    ...current,
+                    provider,
+                    model: providerModels[provider]?.[0] ?? current.model
+                  }));
+                }}
+              >
+                {Object.keys(providerModels).map((provider) => (
+                  <option key={provider}>{provider}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm">
+              <span className="text-muted-foreground">Model</span>
+              <select
+                className={fieldClassName}
+                value={draft.model}
+                onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
+              >
+                {(providerModels[draft.provider] ?? []).map((model) => (
+                  <option key={model}>{model}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2 text-sm">
+              <span className="text-muted-foreground">Auth method</span>
+              <select
+                className={fieldClassName}
+                value={draft.authType}
+                onChange={(event) => setDraft((current) => ({ ...current, authType: event.target.value }))}
+              >
+                <option>API key</option>
+                <option>Managed identity</option>
+                <option>OAuth client</option>
+              </select>
+            </label>
+            <label className="space-y-2 text-sm">
+              <span className="text-muted-foreground">Credential</span>
+              <Input
+                type="password"
+                value={draft.apiKey}
+                onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                placeholder={mode === "edit" ? "Leave blank to keep existing key" : "Paste token, secret, or identifier"}
+              />
+            </label>
+          </div>
+          <label className="space-y-2 text-sm">
+            <span className="text-muted-foreground">Base URL (optional)</span>
+            <Input
+              value={draft.baseUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, baseUrl: event.target.value }))}
+              placeholder="https://example.openai.azure.com"
+            />
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={!draft.name.trim() || (mode === "add" && !draft.apiKey.trim())}>
+            {mode === "add" ? "Add authenticated profile" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function ToggleRow({
-  label,
-  description,
-  value,
-  onToggle
-}: {
-  label: string;
-  description: string;
-  value: boolean;
-  onToggle: () => void;
-}) {
+function DeleteProfileButton({ profileId, onDelete }: { profileId: string; onDelete: (profileId: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+
+  async function confirmDelete() {
+    await onDelete(profileId);
+    setOpen(false);
+  }
+
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-      <div>
-        <div className="font-medium">{label}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{description}</div>
-      </div>
-      <button
-        type="button"
-        onClick={onToggle}
-        className={cn(
-          "relative h-7 w-12 rounded-full border transition",
-          value ? "border-white/[0.16] bg-white/[0.14]" : "border-white/[0.08] bg-white/[0.04]"
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition",
-            value ? "left-6" : "left-1"
-          )}
-        />
-      </button>
-    </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="text-red-300 hover:bg-red-500/10 hover:text-red-200">
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete LLM profile</DialogTitle>
+          <DialogDescription>This removes the saved credential from Sidekicks.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button className="bg-red-500 text-white hover:bg-red-500/90" onClick={confirmDelete}>
+            Delete profile
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -113,37 +223,28 @@ export function SettingsPage() {
   const { data } = useSettings();
   const queryClient = useQueryClient();
   const [profiles, setProfiles] = useState<LlmProfile[]>([]);
-  const [defaultModel, setDefaultModel] = useState("");
-  const [fallbackModel, setFallbackModel] = useState("");
-  const [routingStrategy, setRoutingStrategy] = useState("");
-  const [storage, setStorage] = useState("");
-  const [memoryStore, setMemoryStore] = useState("");
-  const [region, setRegion] = useState("");
-  const [autoDeploy, setAutoDeploy] = useState(false);
-  const [warmContainers, setWarmContainers] = useState(false);
-  const [auditLogging, setAuditLogging] = useState(false);
-  const [artifactRetentionDays, setArtifactRetentionDays] = useState("14");
-  const [maxConcurrency, setMaxConcurrency] = useState("6");
-  const [draftProfile, setDraftProfile] = useState<DraftProfile>({
-    name: "",
-    provider: "OpenAI",
-    model: "GPT-4o",
-    authType: "API key",
-    apiKey: ""
-  });
+
+  const syncSettings = useMemo(
+    () => async (nextSettings: { llmProfiles: LlmProfile[] }) => {
+      setProfiles(nextSettings.llmProfiles);
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+    [queryClient]
+  );
+
   const addProfileMutation = useMutation({
     mutationFn: addLlmProfile,
-    onSuccess: async (nextSettings) => {
-      setProfiles(nextSettings.llmProfiles);
-      setDraftProfile((current) => ({
-        name: "",
-        provider: current.provider,
-        model: providerModels[current.provider][0],
-        authType: "API key",
-        apiKey: ""
-      }));
-      await queryClient.invalidateQueries({ queryKey: ["settings"] });
-    }
+    onSuccess: syncSettings
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: updateLlmProfile,
+    onSuccess: syncSettings
+  });
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: deleteLlmProfile,
+    onSuccess: syncSettings
   });
 
   useEffect(() => {
@@ -152,397 +253,142 @@ export function SettingsPage() {
     }
 
     setProfiles(data.llmProfiles);
-    setDefaultModel(data.defaultModel);
-    setFallbackModel(data.fallbackModel);
-    setRoutingStrategy(data.routingStrategy);
-    setStorage(data.storage);
-    setMemoryStore(data.memoryStore);
-    setRegion(data.region);
-    setAutoDeploy(data.autoDeploy);
-    setWarmContainers(data.warmContainers);
-    setAuditLogging(data.auditLogging);
-    setArtifactRetentionDays(String(data.artifactRetentionDays));
-    setMaxConcurrency(String(data.maxConcurrency));
   }, [data]);
 
-  function updateDraft<K extends keyof DraftProfile>(key: K, value: DraftProfile[K]) {
-    setDraftProfile((current) => ({ ...current, [key]: value }));
+  async function createProfile(draft: DraftProfile) {
+    await addProfileMutation.mutateAsync({
+      name: draft.name,
+      provider: draft.provider,
+      model: draft.model,
+      authType: draft.authType,
+      apiKey: draft.apiKey,
+      baseUrl: draft.baseUrl || undefined
+    });
   }
 
-  function addProfile() {
-    if (!draftProfile.name.trim() || !draftProfile.apiKey.trim()) {
-      return;
-    }
-
-    addProfileMutation.mutate({
-      name: draftProfile.name.trim(),
-      provider: draftProfile.provider,
-      model: draftProfile.model,
-      authType: draftProfile.authType,
-      apiKey: draftProfile.apiKey,
-      baseUrl: draftProfile.provider === "Azure OpenAI" ? "https://example-resource.openai.azure.com" : undefined
+  async function editProfile(profileId: string, draft: DraftProfile) {
+    await updateProfileMutation.mutateAsync({
+      id: profileId,
+      name: draft.name,
+      provider: draft.provider,
+      model: draft.model,
+      authType: draft.authType,
+      apiKey: draft.apiKey || undefined,
+      baseUrl: draft.baseUrl || undefined
     });
+  }
+
+  async function removeProfile(profileId: string) {
+    await deleteProfileMutation.mutateAsync(profileId);
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <Badge>Configuration</Badge>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-2 max-w-2xl text-muted-foreground">
-            Configure workspace defaults, authenticated model providers, routing behavior, and control-plane policies.
-          </p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Profiles</div>
-            <div className="mt-2 text-xl font-semibold">{profiles.length}</div>
+      <section className="panel overflow-hidden">
+        <div className="grid gap-6 px-6 py-7 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
+          <div>
+            <Badge>Settings</Badge>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">OpenClaw MVP Settings</h1>
+            <p className="mt-2 max-w-2xl text-muted-foreground">
+              Keep only the provider credentials and defaults required to deploy one upstream OpenClaw runtime.
+            </p>
           </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Default Region</div>
-            <div className="mt-2 text-xl font-semibold">{region || "--"}</div>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Environment</div>
-            <div className="mt-2 text-xl font-semibold">{data?.environment ?? "--"}</div>
+          <div className="grid gap-3">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+              <div className="text-sm text-muted-foreground">Default model</div>
+              <div className="mt-2 font-medium">{data?.defaultModel ?? "GPT-4o"}</div>
+            </div>
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+              <div className="text-sm text-muted-foreground">Region</div>
+              <div className="mt-2 font-medium">{data?.region ?? "us-west-2"}</div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="xl:sticky xl:top-6 xl:self-start">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2">
-            <div className="px-3 py-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Settings Nav
+      <section id="profiles" className="scroll-mt-8">
+        <div className="panel">
+          <div className="flex items-center justify-between gap-4 p-6 pb-4">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight">LLM Profiles</h3>
+              <p className="text-sm text-muted-foreground">
+                Manage authenticated providers and model credentials available to Sidekicks deployments.
+              </p>
             </div>
-            <nav className="space-y-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-
-                return (
-                  <a
-                    key={item.id}
-                    href={`#${item.id}`}
-                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </a>
-                );
-              })}
-            </nav>
+            <ProfileDialog
+              mode="add"
+              onSave={createProfile}
+              trigger={
+                <Button>
+                  <Plus className="h-4 w-4" />
+                  Add Profile
+                </Button>
+              }
+            />
           </div>
-        </aside>
-
-        <div className="space-y-6">
-          <SectionCard
-            id="general"
-            title="General"
-            description="Workspace identity and control-plane defaults applied across the Sidekicks environment."
-          >
-            <div className="grid gap-4 lg:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Workspace name</span>
-                <Input defaultValue={data?.workspaceName} />
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Environment</span>
-                <select className={fieldClassName} defaultValue={data?.environment}>
-                  <option>Production</option>
-                  <option>Staging</option>
-                  <option>Development</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Default region</span>
-                <select className={fieldClassName} value={region} onChange={(event) => setRegion(event.target.value)}>
-                  <option>us-west-2</option>
-                  <option>us-east-1</option>
-                  <option>eu-central-1</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Max concurrency per agent</span>
-                <Input value={maxConcurrency} onChange={(event) => setMaxConcurrency(event.target.value)} />
-              </label>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            id="profiles"
-            title="LLM Profiles"
-            description="Manage authenticated providers and model credentials available to Sidekicks deployments."
-          >
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-4">
+          <div className="p-6 pt-0">
+            {profiles.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-8 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+                  <Settings2 className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div className="mt-4 font-medium">No LLM profiles yet</div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Add one real provider credential to deploy the OpenClaw MVP runtime.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
                 {profiles.map((profile) => (
-                  <div
-                    key={profile.id}
-                    className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium">{profile.name}</div>
+                  <div key={profile.id} className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-5 py-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="font-medium">{profile.name}</div>
+                          <Badge tone={profile.status === "active" ? "success" : "warning"}>
+                            {profile.status === "active" ? "Active" : "Limited"}
+                          </Badge>
+                        </div>
                         <div className="mt-1 text-sm text-muted-foreground">
                           {profile.provider} • {profile.model} • {profile.authType}
                         </div>
-                      </div>
-                      <Badge tone={profile.status === "active" ? "success" : "warning"}>
-                        {profile.status === "active" ? "Active" : "Limited"}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Credential</div>
-                        <div className="mt-2 font-mono text-sm">{profile.apiKeyPreview}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Scopes</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {profile.scopes.map((scope) => (
-                            <Badge key={scope} tone="muted">
-                              {scope}
-                            </Badge>
-                          ))}
+                        <div className="mt-3 flex flex-wrap gap-6 text-sm text-muted-foreground">
+                          <div>
+                            <span className="font-mono text-foreground">{profile.apiKeyPreview}</span>
+                            <span className="ml-2">Credential</span>
+                          </div>
+                          <div>
+                            <span className="font-mono text-foreground">{profile.keyEnvVar}</span>
+                            <span className="ml-2">Env var</span>
+                          </div>
+                          <div>
+                            <span className="text-foreground">{profile.lastUsed}</span>
+                            <span className="ml-2">Last used</span>
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Last used</div>
-                        <div className="mt-2 text-sm text-foreground">{profile.lastUsed}</div>
+                      <div className="flex items-center justify-end gap-2 lg:min-w-[180px]">
+                        <ProfileDialog
+                          mode="edit"
+                          profile={profile}
+                          onSave={(draft) => editProfile(profile.id, draft)}
+                          trigger={
+                            <Button variant="ghost" size="sm">
+                              <Edit3 className="h-4 w-4" />
+                              Edit
+                            </Button>
+                          }
+                        />
+                        <DeleteProfileButton profileId={profile.id} onDelete={removeProfile} />
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">Add LLM profile</div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Register an authenticated provider for routing, fallback, or environment-specific usage.
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.04] p-2">
-                    <Plus className="h-4 w-4 text-foreground" />
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-4">
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted-foreground">Profile name</span>
-                    <Input
-                      placeholder="e.g. OpenAI Production"
-                      value={draftProfile.name}
-                      onChange={(event) => updateDraft("name", event.target.value)}
-                    />
-                  </label>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Provider</span>
-                      <select
-                        className={fieldClassName}
-                        value={draftProfile.provider}
-                        onChange={(event) => {
-                          const provider = event.target.value;
-                          setDraftProfile((current) => ({
-                            ...current,
-                            provider,
-                            model: providerModels[provider][0]
-                          }));
-                        }}
-                      >
-                        {Object.keys(providerModels).map((provider) => (
-                          <option key={provider}>{provider}</option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Model</span>
-                      <select
-                        className={fieldClassName}
-                        value={draftProfile.model}
-                        onChange={(event) => updateDraft("model", event.target.value)}
-                      >
-                        {providerModels[draftProfile.provider].map((model) => (
-                          <option key={model}>{model}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Auth method</span>
-                      <select
-                        className={fieldClassName}
-                        value={draftProfile.authType}
-                        onChange={(event) => updateDraft("authType", event.target.value)}
-                      >
-                        <option>API key</option>
-                        <option>Managed identity</option>
-                        <option>OAuth client</option>
-                      </select>
-                    </label>
-
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Credential</span>
-                      <Input
-                        placeholder="Paste token, secret, or identifier"
-                        value={draftProfile.apiKey}
-                        onChange={(event) => updateDraft("apiKey", event.target.value)}
-                      />
-                    </label>
-                  </div>
-
-                  <Button onClick={addProfile} className="w-full">
-                    <Plus className="h-4 w-4" />
-                    Add authenticated profile
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            id="routing"
-            title="Model Routing"
-            description="Define how Sidekicks chooses models for new agents, retries, and fallback behavior."
-          >
-            <div className="grid gap-4 lg:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Default model</span>
-                <select className={fieldClassName} value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)}>
-                  {profiles.map((profile) => (
-                    <option key={`${profile.id}-default`} value={profile.model}>
-                      {profile.model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Fallback model</span>
-                <select className={fieldClassName} value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)}>
-                  {profiles.map((profile) => (
-                    <option key={`${profile.id}-fallback`} value={profile.model}>
-                      {profile.model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2 text-sm lg:col-span-2">
-                <span className="text-muted-foreground">Routing strategy</span>
-                <select
-                  className={fieldClassName}
-                  value={routingStrategy}
-                  onChange={(event) => setRoutingStrategy(event.target.value)}
-                >
-                  <option>Latency-aware</option>
-                  <option>Cost-aware</option>
-                  <option>Provider pinning</option>
-                </select>
-              </label>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            id="storage"
-            title="Storage & Memory"
-            description="Configure persistence for artifacts, run state, and agent memory."
-          >
-            <div className="grid gap-4 lg:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Artifact storage</span>
-                <select className={fieldClassName} value={storage} onChange={(event) => setStorage(event.target.value)}>
-                  <option>Redis</option>
-                  <option>S3 + Redis</option>
-                  <option>Postgres</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Default memory store</span>
-                <select
-                  className={fieldClassName}
-                  value={memoryStore}
-                  onChange={(event) => setMemoryStore(event.target.value)}
-                >
-                  <option>Redis</option>
-                  <option>Postgres</option>
-                  <option>In-memory</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-muted-foreground">Artifact retention (days)</span>
-                <Input
-                  value={artifactRetentionDays}
-                  onChange={(event) => setArtifactRetentionDays(event.target.value)}
-                />
-              </label>
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <Layers3 className="h-4 w-4" />
-                  Storage policy summary
-                </div>
-                <div className="mt-3 space-y-2 text-sm">
-                  <div>Artifacts persist for {artifactRetentionDays || "--"} days.</div>
-                  <div>Agent memory defaults to {memoryStore || "--"}.</div>
-                  <div>Primary backing service is {storage || "--"}.</div>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            id="deployments"
-            title="Deployment Policies"
-            description="Control launch behavior, container warming, and runtime readiness."
-          >
-            <div className="space-y-4">
-              <ToggleRow
-                label="Auto deploy after creation"
-                description="Immediately start new agent instances after the deploy action completes."
-                value={autoDeploy}
-                onToggle={() => setAutoDeploy((current) => !current)}
-              />
-              <ToggleRow
-                label="Warm standby containers"
-                description="Keep a small warm pool available to reduce cold starts for frequent runs."
-                value={warmContainers}
-                onToggle={() => setWarmContainers((current) => !current)}
-              />
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            id="security"
-            title="Security & Audit"
-            description="Set guardrails for logging, secret exposure, and operator notifications."
-          >
-            <div className="grid gap-4 lg:grid-cols-2">
-              <ToggleRow
-                label="Audit logging"
-                description="Capture routing, deployment, and execution metadata for operator review."
-                value={auditLogging}
-                onToggle={() => setAuditLogging((current) => !current)}
-              />
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <BellRing className="h-4 w-4" />
-                  Operator alerts
-                </div>
-                <div className="mt-3 text-sm">
-                  Notify the platform team when provider auth fails, fallback routing activates, or deploys exceed concurrency limits.
-                </div>
-              </div>
-            </div>
-          </SectionCard>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -212,7 +212,8 @@ function presentDeployment(deployment: AgentDeployment, agentId?: string): Deplo
     runtimeSource: deployment.runtimeSource,
     runtimeAdapter: deployment.runtimeAdapter,
     nativeDashboardUrl,
-    nativeDashboardToken: deployment.runtimeAdapter === "openclaw-upstream" ? deployment.runtimeAuth?.token ?? null : null,
+    // Never send raw runtime auth tokens to the browser.
+    nativeDashboardToken: null,
     lastHealthAt: deployment.lastHealthAt ? formatRelativeTime(deployment.lastHealthAt) : null
   };
 }

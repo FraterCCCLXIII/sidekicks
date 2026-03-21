@@ -1,8 +1,8 @@
-import { type DeployRequest, type Job, type LlmProfileInput } from "@/lib/domain/types";
+import { type DeployRequest, type Job, type LlmProfileInput, type LlmProfileUpdateInput } from "@/lib/domain/types";
 import { isPostgresBackend } from "@/lib/server/config";
 import { enqueueAgentDeployment } from "@/lib/server/deploy-queue";
 import { addLlmProfile as addMemoryLlmProfile, createAgentInstance as createMemoryAgentInstance, createJobAndRun as createMemoryJobAndRun, deleteAgentInstance as deleteMemoryAgentInstance, listState as listMemoryState } from "@/lib/server/store";
-import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, deletePostgresAgent, listDeploymentLogsForAgent as listPostgresDeploymentLogsForAgent, listPostgresState, redeployPostgresAgent } from "@/lib/server/postgres-store";
+import { createPostgresAgentInstance, createPostgresChatExchange, createPostgresJobAndRun, createPostgresLlmProfile, deletePostgresAgent, deletePostgresLlmProfile, listDeploymentLogsForAgent as listPostgresDeploymentLogsForAgent, listPostgresState, redeployPostgresAgent, updatePostgresLlmProfile } from "@/lib/server/postgres-store";
 import { enqueueRunExecution } from "@/lib/server/run-queue";
 
 export async function listState() {
@@ -72,6 +72,22 @@ export async function createLlmProfile(input: LlmProfileInput) {
   }
 
   return addMemoryLlmProfile(input);
+}
+
+export async function updateLlmProfile(input: LlmProfileUpdateInput) {
+  if (isPostgresBackend()) {
+    return updatePostgresLlmProfile(input);
+  }
+
+  throw new Error("LLM profile updates are only supported in the postgres backend");
+}
+
+export async function deleteLlmProfile(profileId: string) {
+  if (isPostgresBackend()) {
+    return deletePostgresLlmProfile(profileId);
+  }
+
+  throw new Error("LLM profile deletion is only supported in the postgres backend");
 }
 
 export async function deleteAgentInstance(agentId: string) {

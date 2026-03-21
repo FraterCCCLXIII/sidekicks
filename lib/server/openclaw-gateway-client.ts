@@ -29,9 +29,13 @@ function toWsUrl(endpoint: string) {
   return endpoint.replace("http://", "ws://");
 }
 
-function toHttpOrigin(endpoint: string) {
-  const url = new URL(endpoint);
-  return `${url.protocol}//${url.host}`;
+function getSidekicksGatewayOrigin() {
+  return (
+    process.env.SIDEKICKS_GATEWAY_ORIGIN ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.CONTROL_PLANE_URL ||
+    "http://localhost:3000"
+  );
 }
 
 export async function callOpenClawGateway(options: {
@@ -41,17 +45,19 @@ export async function callOpenClawGateway(options: {
   params?: Record<string, unknown>;
 }): Promise<GatewayRpcResponse> {
   const wsUrl = toWsUrl(options.endpoint);
+  const origin = getSidekicksGatewayOrigin();
 
   return new Promise((resolve) => {
     const socket = new WebSocket(wsUrl, {
       headers: {
         Authorization: `Bearer ${options.token}`,
-        Origin: toHttpOrigin(options.endpoint)
+        Origin: origin
       }
     });
     const requestId = `sidekicks-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const connectId = `connect-${requestId}`;
     let isConnected = false;
+    let connectSent = false;
     const timeout = setTimeout(() => {
       socket.close();
       resolve({ ok: false, error: `Timed out waiting for ${options.method}` });
@@ -68,7 +74,12 @@ export async function callOpenClawGateway(options: {
       );
     }
 
-    socket.on("open", () => {
+    function sendConnect() {
+      if (connectSent) {
+        return;
+      }
+
+      connectSent = true;
       sendRequest(connectId, "connect", {
         minProtocol: 3,
         maxProtocol: 3,
@@ -88,32 +99,15 @@ export async function callOpenClawGateway(options: {
         userAgent: "Sidekicks/1.0",
         locale: "en-US"
       });
-    });
+    }
 
     socket.on("message", (raw) => {
       try {
         const payload = JSON.parse(String(raw));
 
         if (payload?.type === "event" && payload?.event === "connect.challenge") {
-          sendRequest(connectId, "connect", {
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: {
-              id: "openclaw-control-ui",
-              version: "control-ui",
-              platform: "server",
-              mode: "webchat",
-              instanceId: requestId
-            },
-            role: "operator",
-            scopes: ["operator.admin", "operator.approvals", "operator.pairing"],
-            caps: ["tool-events"],
-            auth: {
-              token: options.token
-            },
-            userAgent: "Sidekicks/1.0",
-            locale: "en-US"
-          });
+          // Protocol v3: wait for the challenge event before sending `connect`.
+          sendConnect();
           return;
         }
 

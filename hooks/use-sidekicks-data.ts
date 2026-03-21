@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   addLlmProfile,
   createAgent,
+  deleteLlmProfile,
   deleteAgent,
   getAgentDeploymentLogs,
   redeployAgent,
@@ -19,7 +20,8 @@ import {
   getRuns,
   getSettings,
   sendAgentChatMessage,
-  getTemplates
+  getTemplates,
+  updateLlmProfile
 } from "@/lib/api/control-plane";
 
 export function useDashboardData() {
@@ -109,4 +111,4 @@ export function useSettings() {
 }
 
 export { createAgent, createJob, deleteAgent, redeployAgent, sendAgentChatMessage };
-export { addLlmProfile };
+export { addLlmProfile, updateLlmProfile, deleteLlmProfile };

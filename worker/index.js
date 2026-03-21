@@ -53,6 +53,11 @@ function parseJson(value) {
   return value;
 }
 
+function openClawGatewayEndpointForDeployment(deploymentId) {
+  const safeId = String(deploymentId).replace(/[^a-zA-Z0-9_.-]/g, "-");
+  return `http://sidekicks-agent-${safeId}:18789`;
+}
+
 function toIsoString(value) {
   if (!value) {
     return null;
@@ -378,15 +383,16 @@ function appendLog(run, message, level = "info") {
 
 async function invokeOpenClawUpstreamRun(request, deployment, job) {
   const token = deployment?.runtime_auth?.token;
+  const endpoint = openClawGatewayEndpointForDeployment(deployment?.id ?? "unknown");
   const sessionKey = 'main';
   const idempotencyKey = `sidekicks-run-${request.runId}`;
 
-  if (!deployment?.endpoint || !token) {
-    throw new Error("OpenClaw upstream deployment is missing endpoint or token");
+  if (!deployment?.id || !token) {
+    throw new Error("OpenClaw upstream deployment is missing deployment id or token");
   }
 
   const history = await callOpenClawGateway({
-    endpoint: deployment.endpoint,
+    endpoint,
     token,
     method: "chat.history",
     params: {
@@ -399,8 +405,14 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
     throw new Error(`OpenClaw upstream chat.history failed: ${history.error}`);
   }
 
+  const baselineMessages = Array.isArray(history.result?.messages) ? history.result.messages : [];
+  const baselineTimestamp = baselineMessages.reduce((max, message) => {
+    const ts = typeof message?.timestamp === 'number' ? message.timestamp : 0;
+    return Math.max(max, ts);
+  }, 0);
+
   const send = await callOpenClawGateway({
-    endpoint: deployment.endpoint,
+    endpoint,
     token,
     method: "chat.send",
     params: {
@@ -415,31 +427,74 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
     throw new Error(`OpenClaw upstream chat.send failed: ${send.error}`);
   }
 
+  let assistantReply = null;
+
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await sleep(500);
+    const poll = await callOpenClawGateway({
+      endpoint,
+      token,
+      method: "chat.history",
+      params: {
+        sessionKey,
+        limit: 200
+      }
+    });
+
+    if (!poll.ok) {
+      continue;
+    }
+
+    const messages = Array.isArray(poll.result?.messages) ? poll.result.messages : [];
+    const candidates = messages
+      .filter((message) => message?.role === 'assistant' && typeof message?.timestamp === 'number' && message.timestamp > baselineTimestamp)
+      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    const latest = candidates[candidates.length - 1];
+    const parts = Array.isArray(latest?.content) ? latest.content : [];
+    const text = parts
+      .map((part) => (part?.type === 'text' && typeof part?.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join('');
+
+    if (text) {
+      assistantReply = text;
+      break;
+    }
+  }
+
   const summaryBody = JSON.stringify({
     status: 'gateway-rpc-ok',
     deploymentId: deployment.id,
     endpoint: deployment.endpoint,
     prompt: job.input.prompt,
     history: history.result,
-    send: send.result
+    send: send.result,
+    assistantReply
   }, null, 2);
 
   return {
-    summary: `OpenClaw upstream gateway accepted the real WS session-aware RPC flow for ${request.agentName}.`,
+    summary: assistantReply
+      ? `OpenClaw upstream completed the run for ${request.agentName}.`
+      : `OpenClaw upstream accepted the run for ${request.agentName}, but no reply was observed yet.`,
     markdown: `# ${job.title}
 
 OpenClaw upstream accepted authenticated gateway RPC calls for this run using the real connect + chat.history + chat.send flow.
 
-Prompt: ${job.input.prompt}`,
+Prompt: ${job.input.prompt}
+
+## Reply
+${assistantReply ?? "(no reply observed yet)"}`,
     highlights: [
       'Authenticated the real upstream gateway with its generated token',
       'Executed gateway RPC methods instead of the Sidekicks-native /runs contract',
-      'Captured the raw upstream gateway results into the run bundle'
+      assistantReply ? 'Captured the assistant reply via chat.history polling' : 'Captured the upstream gateway acknowledgement into the run bundle'
     ],
     artifacts: [
       { name: `${slugifyTitle(job.title || "openclaw-upstream")}.md`, type: 'markdown', body: `# ${job.title}
 
-OpenClaw upstream gateway accepted authenticated RPC.` },
+Prompt: ${job.input.prompt}
+
+Reply: ${assistantReply ?? "(no reply observed yet)"}` },
       { name: `${slugifyTitle(job.title || "openclaw-upstream")}.json`, type: 'dataset', body: summaryBody }
     ]
   };

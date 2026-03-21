@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAgent } from "@/lib/server/services";
+import { listState } from "@/lib/server/backend";
 
 export const dynamic = "force-dynamic";
 
@@ -16,21 +16,20 @@ export async function GET(
   { params }: { params: Promise<{ agentId: string }> }
 ) {
   const { agentId } = await params;
-  const agent = await getAgent(agentId);
+  const state = await listState();
+  const deployment = state.deployments.find((item) => item.agentId === agentId) ?? null;
 
-  if (!agent?.deployment) {
+  if (!deployment) {
     return NextResponse.json({ message: "Deployment not found" }, { status: 404 });
   }
-
-  const deployment = agent.deployment;
 
   if (
     deployment.runtimeAdapter !== "openclaw-upstream" ||
     !deployment.endpoint ||
-    !deployment.nativeDashboardToken
+    !deployment.runtimeAuth?.token
   ) {
     return NextResponse.json({ message: "Native dashboard unavailable" }, { status: 404 });
   }
 
-  return NextResponse.redirect(toHostDashboardUrl(deployment.endpoint, deployment.nativeDashboardToken));
+  return NextResponse.redirect(toHostDashboardUrl(deployment.endpoint, deployment.runtimeAuth.token));
 }

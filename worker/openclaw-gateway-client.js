@@ -12,19 +12,34 @@ function toHttpOrigin(endpoint) {
   return `${url.protocol}//${url.host}`;
 }
 
+function getSidekicksGatewayOrigin(endpoint) {
+  const configured = process.env.SIDEKICKS_GATEWAY_ORIGIN || process.env.CONTROL_PLANE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured) {
+    try {
+      return toHttpOrigin(configured);
+    } catch {
+      return configured;
+    }
+  }
+
+  return 'http://localhost:3000';
+}
+
 async function callOpenClawGateway(options) {
   const wsUrl = toWsUrl(options.endpoint);
+  const origin = getSidekicksGatewayOrigin(options.endpoint);
 
   return new Promise((resolve) => {
     const socket = new WebSocket(wsUrl, {
       headers: {
         Authorization: `Bearer ${options.token}`,
-        Origin: toHttpOrigin(options.endpoint)
+        Origin: origin
       }
     });
     const requestId = `sidekicks-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const connectId = `connect-${requestId}`;
     let isConnected = false;
+    let connectSent = false;
     const timeout = setTimeout(() => {
       socket.close();
       resolve({ ok: false, error: `Timed out waiting for ${options.method}` });
@@ -34,7 +49,9 @@ async function callOpenClawGateway(options) {
       socket.send(JSON.stringify({ type: 'req', id, method, params }));
     }
 
-    socket.on('open', () => {
+    function sendConnect() {
+      if (connectSent) return;
+      connectSent = true;
       sendRequest(connectId, 'connect', {
         minProtocol: 3,
         maxProtocol: 3,
@@ -54,32 +71,14 @@ async function callOpenClawGateway(options) {
         userAgent: 'Sidekicks/1.0',
         locale: 'en-US'
       });
-    });
+    }
 
     socket.on('message', (raw) => {
       try {
         const payload = JSON.parse(String(raw));
 
         if (payload?.type === 'event' && payload?.event === 'connect.challenge') {
-          sendRequest(connectId, 'connect', {
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: {
-              id: 'openclaw-control-ui',
-              version: 'control-ui',
-              platform: 'server',
-              mode: 'webchat',
-              instanceId: requestId
-            },
-            role: 'operator',
-            scopes: ['operator.admin', 'operator.approvals', 'operator.pairing'],
-            caps: ['tool-events'],
-            auth: {
-              token: options.token
-            },
-            userAgent: 'Sidekicks/1.0',
-            locale: 'en-US'
-          });
+          sendConnect();
           return;
         }
 

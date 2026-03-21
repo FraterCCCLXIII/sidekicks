@@ -11,6 +11,23 @@ function jsonString(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function normalizeProviderModelRef(rawModelRef: string, fallbackProvider: string) {
+  const trimmed = rawModelRef.trim();
+  const normalizeProvider = (value: string) => value.trim().toLowerCase();
+  const normalizeModel = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+
+  if (trimmed.includes("/")) {
+    const [provider, ...modelParts] = trimmed.split("/");
+    return `${normalizeProvider(provider)}/${normalizeModel(modelParts.join("/"))}`;
+  }
+
+  return `${normalizeProvider(fallbackProvider)}/${normalizeModel(trimmed)}`;
+}
+
 function buildOpenClawConfig({
   agent,
   profile,
@@ -24,7 +41,18 @@ function buildOpenClawConfig({
   allowUnconfigured: boolean;
   allowedOrigins: string[];
 }) {
-  const modelRef = profile?.model || agent.model;
+  const rawModelRef = profile?.model || agent.model;
+  const providerPrefix =
+    profile?.provider === "Anthropic"
+      ? "anthropic"
+      : profile?.provider === "OpenAI"
+        ? "openai"
+        : profile?.provider === "Azure OpenAI"
+          ? "openai"
+          : profile?.provider === "Groq"
+            ? "groq"
+            : "openai";
+  const modelRef = normalizeProviderModelRef(rawModelRef, providerPrefix);
 
   return {
     gateway: {
@@ -33,6 +61,7 @@ function buildOpenClawConfig({
       port: 18789,
       controlUi: {
         allowInsecureAuth: true,
+        dangerouslyDisableDeviceAuth: true,
         dangerouslyAllowHostHeaderOriginFallback: bindMode === "lan",
         allowedOrigins
       }
@@ -71,6 +100,7 @@ function buildOpenClawLaunch({
     bindMode: "lan",
     allowUnconfigured: true,
     allowedOrigins: [
+      "http://web:3000",
       "http://sidekicks-web-1:3000",
       "http://sidekicks-worker-1",
       "http://sidekicks-deployer-1",

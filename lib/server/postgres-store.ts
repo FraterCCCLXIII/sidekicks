@@ -14,6 +14,7 @@ import {
   type Job,
   type LlmProfile,
   type LlmProfileInput,
+  type LlmProfileUpdateInput,
   type Run,
   type RunOutput,
   type RunStep,
@@ -276,6 +277,52 @@ async function sendOpenClawUpstreamChat(options: {
   const sessionKey = "main";
   const idempotencyKey = `sidekicks-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  const extractMessages = (result: unknown): Array<Record<string, unknown>> => {
+    if (!result || typeof result !== "object") {
+      return [];
+    }
+
+    const messages = (result as { messages?: unknown }).messages;
+    return Array.isArray(messages) ? (messages as Array<Record<string, unknown>>) : [];
+  };
+
+  const extractTimestamp = (message: Record<string, unknown>) => {
+    const timestamp = message.timestamp;
+    return typeof timestamp === "number" ? timestamp : 0;
+  };
+
+  const extractAssistantText = (message: Record<string, unknown>) => {
+    const content = message.content;
+
+    if (!Array.isArray(content)) {
+      return null;
+    }
+
+    const parts = content
+      .map((part) => {
+        if (!part || typeof part !== "object") {
+          return "";
+        }
+
+        const type = (part as { type?: unknown }).type;
+        const text = (part as { text?: unknown }).text;
+
+        if (type === "text" && typeof text === "string") {
+          return text;
+        }
+
+        return "";
+      })
+      .filter(Boolean);
+
+    return parts.length > 0 ? parts.join("") : null;
+  };
+
   const history = await callOpenClawGateway({
     endpoint: options.endpoint,
     token: options.token,
@@ -289,6 +336,9 @@ async function sendOpenClawUpstreamChat(options: {
   if (!history.ok) {
     return `OpenClaw upstream gateway for ${options.agentName} rejected chat.history: ${history.error}`;
   }
+
+  const baselineMessages = extractMessages(history.result);
+  const baselineTimestamp = baselineMessages.reduce((max, message) => Math.max(max, extractTimestamp(message)), 0);
 
   const send = await callOpenClawGateway({
     endpoint: options.endpoint,
@@ -306,9 +356,38 @@ async function sendOpenClawUpstreamChat(options: {
     return `OpenClaw upstream gateway for ${options.agentName} rejected chat.send: ${send.error}`;
   }
 
-  const sendResult = JSON.stringify(send.result);
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await sleep(500);
 
-  return `OpenClaw upstream gateway accepted the real WS chat protocol for ${options.agentName}. Response payload: ${sendResult.slice(0, 500)}`;
+    const nextHistory = await callOpenClawGateway({
+      endpoint: options.endpoint,
+      token: options.token,
+      method: "chat.history",
+      params: {
+        sessionKey,
+        limit: 200
+      }
+    });
+
+    if (!nextHistory.ok) {
+      continue;
+    }
+
+    const nextMessages = extractMessages(nextHistory.result);
+    const candidates = nextMessages
+      .filter((message) => message.role === "assistant" && extractTimestamp(message) > baselineTimestamp)
+      .sort((a, b) => extractTimestamp(a) - extractTimestamp(b));
+
+    const latest = candidates.at(-1);
+    const text = latest ? extractAssistantText(latest) : null;
+
+    if (text) {
+      return text;
+    }
+  }
+
+  const sendResult = JSON.stringify(send.result).slice(0, 500);
+  return `OpenClaw upstream accepted the message but no assistant reply was observed yet. Payload: ${sendResult}`;
 }
 
 function buildInitialSteps(): RunStep[] {
@@ -1077,6 +1156,61 @@ export async function createPostgresLlmProfile(input: LlmProfileInput): Promise<
   });
 }
 
+export async function updatePostgresLlmProfile(input: LlmProfileUpdateInput): Promise<SettingsData> {
+  await ensureDatabaseReady();
+
+  return withTransaction(async (client) => {
+    const settingsResult = await client.query("SELECT data FROM settings WHERE id = $1 FOR UPDATE", ["default"]);
+    const settings = parseJson<SettingsData>(settingsResult.rows[0]?.data);
+    const existingProfile = settings.llmProfiles.find((profile) => profile.id === input.id);
+
+    if (!existingProfile) {
+      throw new Error(`LLM profile not found for id ${input.id}`);
+    }
+
+    const providerEnv = envVarForProvider(input.provider);
+    const nextProfile: LlmProfile = {
+      ...existingProfile,
+      name: input.name.trim(),
+      provider: input.provider,
+      model: input.model,
+      authType: input.authType,
+      apiKeyPreview: input.apiKey?.trim() ? buildProfileSecretPreview(input.apiKey) : existingProfile.apiKeyPreview,
+      keyEnvVar: providerEnv.keyEnvVar,
+      baseUrlEnvVar: providerEnv.baseUrlEnvVar,
+      apiKeySecret: input.apiKey?.trim() ? input.apiKey.trim() : existingProfile.apiKeySecret,
+      baseUrl: input.baseUrl?.trim() || undefined
+    };
+
+    const nextSettings: SettingsData = {
+      ...settings,
+      llmProfiles: settings.llmProfiles.map((profile) => (profile.id === input.id ? nextProfile : profile))
+    };
+
+    await client.query("UPDATE settings SET data = $2::jsonb WHERE id = $1", ["default", toJson(nextSettings)]);
+
+    return nextSettings;
+  });
+}
+
+export async function deletePostgresLlmProfile(profileId: string): Promise<SettingsData> {
+  await ensureDatabaseReady();
+
+  return withTransaction(async (client) => {
+    const settingsResult = await client.query("SELECT data FROM settings WHERE id = $1 FOR UPDATE", ["default"]);
+    const settings = parseJson<SettingsData>(settingsResult.rows[0]?.data);
+
+    const nextSettings: SettingsData = {
+      ...settings,
+      llmProfiles: settings.llmProfiles.filter((profile) => profile.id !== profileId)
+    };
+
+    await client.query("UPDATE settings SET data = $2::jsonb WHERE id = $1", ["default", toJson(nextSettings)]);
+
+    return nextSettings;
+  });
+}
+
 export async function createPostgresJobAndRun(
   input: {
     agentId: string;
@@ -1196,6 +1330,11 @@ export async function createPostgresJobAndRun(
   });
 }
 
+function openClawGatewayEndpointForDeployment(deploymentId: string) {
+  const safeId = deploymentId.replace(/[^a-zA-Z0-9_.-]/g, "-");
+  return `http://sidekicks-agent-${safeId}:18789`;
+}
+
 export async function createPostgresChatExchange(agentId: string, content: string) {
   await ensureDatabaseReady();
 
@@ -1253,7 +1392,7 @@ export async function createPostgresChatExchange(agentId: string, content: strin
 
     if (deployment?.runtimeAdapter === "openclaw-upstream" && deployment.endpoint && deployment.runtimeAuth?.token) {
       assistantContent = await sendOpenClawUpstreamChat({
-        endpoint: deployment.endpoint,
+        endpoint: openClawGatewayEndpointForDeployment(deployment.id),
         token: deployment.runtimeAuth.token,
         content: normalizedContent,
         agentName: agent.name
@@ -1383,8 +1522,15 @@ export async function redeployPostgresAgent(agentId: string) {
 
   const requestedAt = new Date().toISOString();
 
-  const agent = mapAgent(deployment);
-  const template = mapTemplate(deployment);
+  const agent = mapAgent({
+    ...deployment,
+    template_id: deployment.template_id,
+    template_name: deployment.template_name
+  });
+  const template = mapTemplate({
+    ...deployment,
+    id: deployment.template_id
+  });
   const settings = parseJson<SettingsData>(deployment.settings_data);
   const selectedProfile = settings.llmProfiles.find((profile) =>
     agent.envVars.some((envVar) => envVar.key === profile.keyEnvVar && envVar.value === profile.apiKeySecret)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Box, Code2, FileSearch, Rocket, Search, WandSparkles } from "lucide-react";
+import { FileSearch, Search } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -12,15 +12,7 @@ import { useTemplates } from "@/hooks/use-sidekicks-data";
 import { type TemplateListItemView } from "@/lib/server/presenters";
 
 const templateIcons: Record<string, typeof FileSearch> = {
-  OpenClaw: FileSearch,
-  NanoClaw: Bot,
-  AppClaw: Code2,
-  MarketingClaw: WandSparkles,
-  DataClaw: Box,
-  Research: FileSearch,
-  Development: Code2,
-  Marketing: WandSparkles,
-  Operations: Rocket
+  "OpenClaw Upstream": FileSearch
 };
 
 function TemplateCard({ template }: { template: TemplateListItemView }) {
@@ -89,7 +81,7 @@ export function TemplatesPage() {
           <Badge>Templates</Badge>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">Templates</h1>
           <p className="mt-2 max-w-2xl text-muted-foreground">
-            Browse deployable runtimes and presets, inspect package metadata, and launch agent instances in a few clicks.
+            Deploy the single supported MVP runtime, inspect its upstream image metadata, and launch a managed OpenClaw instance.
           </p>
         </div>
       </div>
@@ -98,7 +90,7 @@ export function TemplatesPage() {
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-11"
-          placeholder="Search templates by package, runtime image, tools, or use case"
+          placeholder="Search the OpenClaw MVP template"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />

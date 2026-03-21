@@ -237,6 +237,16 @@ export type LlmProfileInput = {
   baseUrl?: string;
 };
 
+export type LlmProfileUpdateInput = {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  authType: string;
+  apiKey?: string;
+  baseUrl?: string;
+};
+
 export type SettingsData = {
   workspaceName: string;
   environment: string;

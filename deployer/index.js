@@ -66,6 +66,46 @@ function sleep(ms) {
   });
 }
 
+async function removeExistingAgentContainers(agentId, deploymentId) {
+  try {
+    const containers = await docker.listContainers({
+      all: true,
+      filters: {
+        label: [`sidekicks.agentId=${agentId}`]
+      }
+    });
+
+    for (const info of containers) {
+      const rawName = Array.isArray(info.Names) && info.Names.length ? info.Names[0] : "";
+      const name = rawName.startsWith("/") ? rawName.slice(1) : rawName;
+      const priorDeploymentId = info.Labels?.["sidekicks.deploymentId"];
+      const display = name || info.Id;
+
+      await appendDeploymentLog(
+        deploymentId,
+        "info",
+        `Removing previous agent container ${display}${priorDeploymentId ? ` (deployment ${priorDeploymentId})` : ""}.`
+      );
+
+      try {
+        await docker.getContainer(info.Id).remove({ force: true });
+      } catch (error) {
+        await appendDeploymentLog(
+          deploymentId,
+          "warn",
+          `Failed to remove previous agent container ${display}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  } catch (error) {
+    log("failed to remove previous agent containers", {
+      agentId,
+      deploymentId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 async function withTransaction(callback) {
   const client = await pool.connect();
 
@@ -178,14 +218,10 @@ async function writeRenderedFiles(container, files) {
     });
     const stream = await exec.start({});
     await new Promise((resolve, reject) => {
-      container.modem.followProgress(stream, (error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve();
-      });
+      stream.on("error", reject);
+      stream.on("end", resolve);
+      // Exec streams are not JSON progress streams; just drain and wait.
+      stream.resume();
     });
     const result = await exec.inspect();
 
@@ -275,19 +311,30 @@ async function extractOpenClawRuntimeAuth(container, renderedLaunch) {
   }
 }
 
-async function probeContainerHttp(container, path) {
+async function probeContainerHttp(container, path, timeoutMs = 2000) {
+  const script = `const ac=new AbortController();const t=setTimeout(()=>ac.abort(),${timeoutMs});fetch('http://127.0.0.1:18789${path}',{signal:ac.signal}).then((r)=>{clearTimeout(t);process.exit(r.ok?0:1)}).catch(()=>process.exit(1));`;
   const exec = await container.exec({
-    Cmd: [
-      "sh",
-      "-lc",
-      `node -e \"fetch('http://127.0.0.1:18789${path}').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"`
-    ],
+    Cmd: ["sh", "-lc", `node -e ${JSON.stringify(script)}`],
     AttachStdout: true,
     AttachStderr: true
   });
-  await exec.start({});
+  const stream = await exec.start({});
+  await new Promise((resolve, reject) => {
+    stream.on("error", reject);
+    stream.on("end", resolve);
+    stream.resume();
+  });
   const result = await exec.inspect();
   return result.ExitCode === 0;
+}
+
+async function probeEndpointHealth(endpoint) {
+  try {
+    const response = await fetch(`${endpoint}/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function createNativeRuntimeContainer(deployment, agentId) {
@@ -378,10 +425,25 @@ async function createRenderedRuntimeContainer(deployment, agentId) {
     "info",
     `Rendered ${String((renderedLaunch.files || []).length)} config file(s) into the runtime container.`
   );
-  const inspection = await container.inspect();
-  const hostPort = inspection?.NetworkSettings?.Ports?.["18789/tcp"]?.[0]?.HostPort || null;
+  let hostPort = null;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const inspection = await container.inspect();
+    const bindings = inspection?.NetworkSettings?.Ports?.["18789/tcp"] || [];
+    const binding = bindings.find((entry) => entry?.HostIp === "127.0.0.1") || bindings[0];
+    hostPort = binding?.HostPort || null;
+
+    if (hostPort) {
+      break;
+    }
+
+    await sleep(250);
+  }
+
   if (hostPort) {
     await appendDeploymentLog(deployment.id, "info", `Published OpenClaw dashboard on localhost:${hostPort}.`);
+  } else {
+    await appendDeploymentLog(deployment.id, "warn", "OpenClaw dashboard port binding was not available after container start.");
   }
 
   log("rendered runtime container started", {
@@ -417,23 +479,41 @@ async function waitForHealth(endpoint) {
 }
 
 async function waitForUpstreamOpenClaw(container, endpoint, deploymentId) {
-  for (let index = 0; index < 120; index += 1) {
+  for (let index = 0; index < 300; index += 1) {
+    let dockerHealth = null;
+
     try {
-      const healthy = await probeContainerHttp(container, "/health");
+      const inspection = await container.inspect();
+      dockerHealth = inspection?.State?.Health?.Status ?? null;
+
+      if (dockerHealth === "healthy") {
+        await appendDeploymentLog(
+          deploymentId,
+          "info",
+          `OpenClaw Docker healthcheck is healthy on attempt ${index + 1}.`
+        );
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const healthy = await probeContainerHttp(container, "/health", 1500);
 
       if (healthy) {
         await appendDeploymentLog(deploymentId, "info", `OpenClaw health probe succeeded on attempt ${index + 1}.`);
         return true;
       }
     } catch {
-      // noop, we log the retry below
+      // ignore
     }
 
     if ((index + 1) % 10 === 0) {
       await appendDeploymentLog(
         deploymentId,
         "info",
-        `Still waiting for OpenClaw health (${index + 1}/120) at ${endpoint}.`
+        `Still waiting for OpenClaw health (${index + 1}/300) at ${endpoint}${dockerHealth ? ` (docker=${dockerHealth})` : ""}.`
       );
     }
 
@@ -529,6 +609,7 @@ async function deployRuntime(request) {
   }
 
   await appendDeploymentLog(request.deploymentId, "info", `Deployment job started for agent ${request.agentId}.`);
+  await removeExistingAgentContainers(request.agentId, request.deploymentId);
 
   if (!["sidekicks-native", "openclaw-upstream"].includes(deployment.runtime_adapter)) {
     log("skipping deploy for unsupported template", {
@@ -564,14 +645,35 @@ async function deployRuntime(request) {
         )
       : null;
 
+  if (healthy && deployment.runtime_adapter === "openclaw-upstream" && !runtimeAuth?.token) {
+    await appendDeploymentLog(request.deploymentId, "warn", "OpenClaw became healthy but runtime auth token was not extracted.");
+  }
+
   if (runtimeAuth?.token) {
     await appendDeploymentLog(request.deploymentId, "info", "Extracted runtime authentication token from OpenClaw config.");
   }
 
+  let finalEndpoint = started.endpoint;
+
+  if (deployment.runtime_adapter === "openclaw-upstream") {
+    try {
+      const inspection = await container.inspect();
+      const bindings = inspection?.NetworkSettings?.Ports?.["18789/tcp"] || [];
+      const binding = bindings.find((entry) => entry?.HostIp === "127.0.0.1") || bindings[0];
+      const hostPort = binding?.HostPort || null;
+
+      if (hostPort) {
+        finalEndpoint = `http://127.0.0.1:${hostPort}`;
+      }
+    } catch {
+      // keep started endpoint
+    }
+  }
+
   await markDeploymentStatus(request.deploymentId, {
-    status: healthy ? "healthy" : "failed",
+    status: healthy && (deployment.runtime_adapter !== "openclaw-upstream" || runtimeAuth?.token) ? "healthy" : "failed",
     containerId: started.containerId,
-    endpoint: started.endpoint,
+    endpoint: finalEndpoint,
     updatedAt: now,
     lastHealthAt: healthy ? now : null,
     runtimeAuth
@@ -585,13 +687,18 @@ async function deployRuntime(request) {
   log("deployment reconciled", {
     deploymentId: request.deploymentId,
     containerId: started.containerId,
-    endpoint: started.endpoint,
-    healthy
+    endpoint: finalEndpoint,
+    healthy,
+    hasRuntimeAuth: Boolean(runtimeAuth?.token)
   });
   await appendDeploymentLog(
     request.deploymentId,
-    healthy ? "info" : "warn",
-    healthy ? `Deployment became healthy at ${started.endpoint}.` : `Deployment failed health checks at ${started.endpoint}.`
+    healthy && (deployment.runtime_adapter !== "openclaw-upstream" || runtimeAuth?.token) ? "info" : "warn",
+    healthy && (deployment.runtime_adapter !== "openclaw-upstream" || runtimeAuth?.token)
+      ? `Deployment became healthy at ${finalEndpoint}.`
+      : healthy
+        ? `Deployment reached health at ${finalEndpoint} but auth extraction failed.`
+        : `Deployment failed health checks at ${finalEndpoint}.`
   );
 }
 

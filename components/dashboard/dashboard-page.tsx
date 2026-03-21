@@ -28,11 +28,10 @@ export function DashboardPage() {
           <div>
             <Badge>Control Plane</Badge>
             <h1 className="mt-4 max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
-              Deploy and manage AI agents as easily as deploying an app.
+              Deploy one real upstream OpenClaw runtime from a minimal control plane.
             </h1>
             <p className="mt-3 max-w-2xl text-base text-muted-foreground">
-              Sidekicks keeps templates, agents, runs, and artifacts in one fast operator view, with
-              observability built into every launch.
+              This MVP focuses on a single template, a single deployment path, and enough observability to understand what the runtime is doing.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <DeployAgentDialog triggerLabel="Deploy Agent" onDeployed={setLastDeployment} />
@@ -49,14 +48,14 @@ export function DashboardPage() {
           <div className="panel-muted flex flex-col justify-between p-5">
             <div>
               <div className="text-sm text-muted-foreground">Live cluster snapshot</div>
-              <div className="mt-2 text-2xl font-semibold">4 running jobs across 3 regions</div>
+              <div className="mt-2 text-2xl font-semibold">Single-template MVP</div>
             </div>
             <div className="mt-6 grid gap-3 text-sm text-muted-foreground sm:grid-cols-3 lg:grid-cols-1">
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                Median deployment time <span className="block pt-1 text-lg text-foreground">38s</span>
+                Primary runtime <span className="block pt-1 text-lg text-foreground">OpenClaw Upstream</span>
               </div>
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                Artifact retention <span className="block pt-1 text-lg text-foreground">14 days</span>
+                Deployment path <span className="block pt-1 text-lg text-foreground">Upstream gateway</span>
               </div>
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                 {lastDeployment ? (
@@ -65,7 +64,7 @@ export function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    Ready to deploy <span className="block pt-1 text-lg text-foreground">5 templates</span>
+                    Ready to deploy <span className="block pt-1 text-lg text-foreground">1 template</span>
                   </>
                 )}
               </div>

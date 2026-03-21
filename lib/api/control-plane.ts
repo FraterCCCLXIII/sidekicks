@@ -1,4 +1,4 @@
-import { type DeployRequest, type DeploymentLogEntry, type LlmProfileInput, type SettingsData } from "@/lib/domain/types";
+import { type DeployRequest, type DeploymentLogEntry, type LlmProfileInput, type LlmProfileUpdateInput, type SettingsData } from "@/lib/domain/types";
 import { fetchJson } from "@/lib/api/client";
 import {
   type AgentDetailView,
@@ -103,5 +103,18 @@ export function addLlmProfile(input: LlmProfileInput) {
   return fetchJson<SettingsData>("/api/settings", {
     method: "POST",
     body: JSON.stringify(input)
+  });
+}
+
+export function updateLlmProfile(input: LlmProfileUpdateInput) {
+  return fetchJson<SettingsData>("/api/settings", {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export function deleteLlmProfile(profileId: string) {
+  return fetchJson<SettingsData>(`/api/settings?profileId=${encodeURIComponent(profileId)}`, {
+    method: "DELETE"
   });
 }
