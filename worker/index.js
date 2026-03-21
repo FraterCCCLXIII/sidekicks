@@ -384,7 +384,9 @@ function appendLog(run, message, level = "info") {
 async function invokeOpenClawUpstreamRun(request, deployment, job) {
   const token = deployment?.runtime_auth?.token;
   const endpoint = openClawGatewayEndpointForDeployment(deployment?.id ?? "unknown");
-  const sessionKey = 'main';
+  // Keep Sidekicks chat in OpenClaw's `main` session, but isolate runs so they
+  // don't spam the interactive chat history.
+  const sessionKey = `run_${request.runId}`;
   const idempotencyKey = `sidekicks-run-${request.runId}`;
 
   if (!deployment?.id || !token) {
