@@ -1,0 +1,10 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY runtime/nanoclaw/server.js /app/server.js
+
+ENV PORT=4001
+EXPOSE 4001
+
+CMD ["node", "/app/server.js"]

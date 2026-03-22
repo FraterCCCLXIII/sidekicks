@@ -67,7 +67,7 @@ const templates: AgentTemplate[] = [
     packageName: "nanobot-ai",
     packageVersion: "v0.1.4.post5",
     sourceRepo: "github.com/HKUDS/nanobot",
-    runtimeImage: "nanobot:latest",
+    runtimeImage: "sidekicks-runtime-nanobot:latest",
     runtimeAdapter: "sidekicks-native",
     isolationMode: "container",
     supportedTools: ["web", "browser", "files"],
@@ -83,7 +83,13 @@ const templates: AgentTemplate[] = [
     featured: false,
     exampleUseCases: ["Personal assistant", "Multi-channel chat bot", "Scheduled routines"],
     configSchema: {
-      env: []
+      env: [
+        { key: "OPENROUTER_API_KEY", required: false, description: "OpenRouter API key for nanobot." },
+        { key: "OPENAI_API_KEY", required: false, description: "OpenAI API key for nanobot." },
+        { key: "ANTHROPIC_API_KEY", required: false, description: "Anthropic API key for nanobot." },
+        { key: "NANOBOT_PROVIDER", required: false, description: "Provider name to use (openrouter, openai, anthropic, custom)." },
+        { key: "NANOBOT_MODEL", required: false, description: "Model name override for nanobot." }
+      ]
     }
   },
   {
@@ -98,7 +104,7 @@ const templates: AgentTemplate[] = [
     packageName: "qwibitai/nanoclaw",
     packageVersion: "latest",
     sourceRepo: "github.com/qwibitai/nanoclaw",
-    runtimeImage: "nanoclaw:latest",
+    runtimeImage: "sidekicks-runtime-nanoclaw:latest",
     runtimeAdapter: "sidekicks-native",
     isolationMode: "container",
     supportedTools: ["web", "browser", "files"],

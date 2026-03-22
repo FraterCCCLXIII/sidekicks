@@ -67,6 +67,7 @@ services:
       - redis
       - runtime-openclaw-template
       - runtime-nanoclaw-template
+      - runtime-nanobot-template
     restart: unless-stopped
 
   runtime-node:
@@ -94,12 +95,19 @@ services:
   runtime-nanoclaw-template:
     build:
       context: .
-      dockerfile: Dockerfile.runtime
+      dockerfile: Dockerfile.runtime.nanoclaw
     image: sidekicks-runtime-nanoclaw:latest
     environment:
       PORT: 4001
-      RUNTIME_TEMPLATE_ID: tpl_nanoclaw
-      RUNTIME_NAME: NanoClaw
+    restart: unless-stopped
+
+  runtime-nanobot-template:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime.nanobot
+    image: sidekicks-runtime-nanobot:latest
+    environment:
+      PORT: 4001
     restart: unless-stopped
 
   postgres:

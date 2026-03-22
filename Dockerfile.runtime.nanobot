@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir nanobot-ai==0.1.4.post5
+
+COPY runtime/nanobot/server.py /app/server.py
+
+ENV PORT=4001
+EXPOSE 4001
+
+CMD ["python", "/app/server.py"]
