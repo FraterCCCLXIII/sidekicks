@@ -311,8 +311,8 @@ async function extractOpenClawRuntimeAuth(container, renderedLaunch) {
   }
 }
 
-async function probeContainerHttp(container, path, timeoutMs = 2000) {
-  const script = `const ac=new AbortController();const t=setTimeout(()=>ac.abort(),${timeoutMs});fetch('http://127.0.0.1:18789${path}',{signal:ac.signal}).then((r)=>{clearTimeout(t);process.exit(r.ok?0:1)}).catch(()=>process.exit(1));`;
+async function probeContainerHttp(container, path, timeoutMs = 2000, port = 18789) {
+  const script = `const ac=new AbortController();const t=setTimeout(()=>ac.abort(),${timeoutMs});fetch('http://127.0.0.1:${port}${path}',{signal:ac.signal}).then((r)=>{clearTimeout(t);process.exit(r.ok?0:1)}).catch(()=>process.exit(1));`;
   const exec = await container.exec({
     Cmd: ["sh", "-lc", `node -e ${JSON.stringify(script)}`],
     AttachStdout: true,
@@ -523,7 +523,7 @@ async function waitForUpstreamOpenClaw(container, endpoint, deploymentId) {
     }
 
     try {
-      const healthy = await probeContainerHttp(container, "/health", 1500);
+      const healthy = await probeContainerHttp(container, "/health", 1500, 18789);
 
       if (healthy) {
         await appendDeploymentLog(deploymentId, "info", `OpenClaw health probe succeeded on attempt ${index + 1}.`);
@@ -542,6 +542,24 @@ async function waitForUpstreamOpenClaw(container, endpoint, deploymentId) {
     }
 
     await sleep(1000);
+  }
+
+  return false;
+}
+
+async function waitForNativeRuntime(container) {
+  for (let index = 0; index < 20; index += 1) {
+    try {
+      const healthy = await probeContainerHttp(container, "/health", 1500, 4001);
+
+      if (healthy) {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+
+    await sleep(500);
   }
 
   return false;
@@ -658,7 +676,7 @@ async function deployRuntime(request) {
   const healthy =
     deployment.runtime_adapter === "openclaw-upstream"
       ? await waitForUpstreamOpenClaw(container, started.endpoint, request.deploymentId)
-      : await waitForHealth(started.endpoint);
+      : await waitForNativeRuntime(container);
   const now = new Date().toISOString();
   const runtimeAuth =
     healthy && deployment.runtime_adapter === "openclaw-upstream"
