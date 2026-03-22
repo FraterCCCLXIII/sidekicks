@@ -321,7 +321,12 @@ async function probeContainerHttp(container, path, timeoutMs = 2000, port = 1878
     "except Exception:",
     "  sys.exit(1)"
   ].join("\n");
-  const cmd = `command -v node >/dev/null 2>&1 && node -e ${JSON.stringify(nodeScript)} || python - <<'PY'\\n${pythonScript}\\nPY`;
+  const cmd = [
+    `command -v node >/dev/null 2>&1 && node -e ${JSON.stringify(nodeScript)}`,
+    `command -v python3 >/dev/null 2>&1 && python3 -c ${JSON.stringify(pythonScript)}`,
+    `command -v python >/dev/null 2>&1 && python -c ${JSON.stringify(pythonScript)}`,
+    "exit 1"
+  ].join(" || ");
   const exec = await container.exec({
     Cmd: ["sh", "-lc", cmd],
     AttachStdout: true,
