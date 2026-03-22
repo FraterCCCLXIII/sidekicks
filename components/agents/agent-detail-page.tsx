@@ -317,6 +317,17 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                     <span className="text-sm text-muted-foreground">
                       {data.deployment?.endpoint ?? "No runtime endpoint attached"}
                     </span>
+                    {data.deployment?.endpoint ? (
+                      <a
+                        href={data.deployment.endpoint}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80 hover:text-foreground"
+                      >
+                        Open Runtime
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
                     {data.deployment?.nativeDashboardUrl ? (
                       <a
                         href={data.deployment.nativeDashboardUrl}

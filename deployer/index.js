@@ -355,6 +355,9 @@ async function createNativeRuntimeContainer(deployment, agentId) {
       "4001/tcp": {}
     },
     HostConfig: {
+      PortBindings: {
+        "4001/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }]
+      },
       NetworkMode: config.dockerNetwork,
       RestartPolicy: {
         Name: "unless-stopped"
@@ -369,6 +372,27 @@ async function createNativeRuntimeContainer(deployment, agentId) {
   await container.start();
   await appendDeploymentLog(deployment.id, "info", `Container ${name} started from ${deployment.image}.`);
 
+  let hostPort = null;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const inspection = await container.inspect();
+    const bindings = inspection?.NetworkSettings?.Ports?.["4001/tcp"] || [];
+    const binding = bindings.find((entry) => entry?.HostIp === "127.0.0.1") || bindings[0];
+    hostPort = binding?.HostPort || null;
+
+    if (hostPort) {
+      break;
+    }
+
+    await sleep(250);
+  }
+
+  if (hostPort) {
+    await appendDeploymentLog(deployment.id, "info", `Published runtime on localhost:${hostPort}.`);
+  } else {
+    await appendDeploymentLog(deployment.id, "warn", "Runtime port binding was not available after container start.");
+  }
+
   log("runtime container started", {
     deploymentId: deployment.id,
     agentId,
@@ -378,7 +402,7 @@ async function createNativeRuntimeContainer(deployment, agentId) {
 
   return {
     containerId: container.id,
-    endpoint: `http://${name}:4001`
+    endpoint: hostPort ? `http://127.0.0.1:${hostPort}` : `http://${name}:4001`
   };
 }
 
