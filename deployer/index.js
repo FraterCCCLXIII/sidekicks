@@ -178,6 +178,33 @@ async function pullImage(image) {
   log("image pulled", { image });
 }
 
+async function buildImageFromRemote({ image, remote, dockerfile, buildArgs }) {
+  const buildOptions = {
+    t: image,
+    remote,
+    dockerfile,
+    pull: true,
+    forcerm: true
+  };
+
+  if (buildArgs && typeof buildArgs === "object") {
+    buildOptions.buildargs = JSON.stringify(buildArgs);
+  }
+
+  const stream = await docker.buildImage(null, buildOptions);
+  await new Promise((resolve, reject) => {
+    docker.modem.followProgress(stream, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+
+  log("image built", { image, remote, dockerfile });
+}
+
 function buildNativeTemplateEnv(deployment) {
   if (deployment.template_id === "tpl_nanoclaw") {
     return ["RUNTIME_TEMPLATE_ID=tpl_nanoclaw", "RUNTIME_NAME=NanoClaw", "PORT=4001"];
@@ -420,14 +447,17 @@ async function createNativeRuntimeContainer(deployment, agentId) {
   };
 }
 
-async function createRenderedRuntimeContainer(deployment, agentId) {
+async function createRenderedRuntimeContainer(deployment, agentId, options = {}) {
   const name = containerNameForDeployment(deployment.id);
+  const { skipPull = false, hostPort = "" } = options;
 
   await appendDeploymentLog(deployment.id, "info", `Stopping any existing runtime container for ${name}.`);
 
   await stopByName(name);
-  await appendDeploymentLog(deployment.id, "info", `Pulling image ${deployment.image}.`);
-  await pullImage(deployment.image);
+  if (!skipPull) {
+    await appendDeploymentLog(deployment.id, "info", `Pulling image ${deployment.image}.`);
+    await pullImage(deployment.image);
+  }
 
   const renderedLaunch = parseJson(deployment.rendered_launch) || { env: [], files: [], command: null };
   const env = buildAgentEnv(renderedLaunch.env || []);
@@ -441,7 +471,7 @@ async function createRenderedRuntimeContainer(deployment, agentId) {
     },
     HostConfig: {
       PortBindings: {
-        "18789/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }]
+        "18789/tcp": [{ HostIp: "127.0.0.1", HostPort: hostPort }]
       },
       NetworkMode: config.dockerNetwork,
       RestartPolicy: {
@@ -667,7 +697,7 @@ async function deployRuntime(request) {
   await appendDeploymentLog(request.deploymentId, "info", `Deployment job started for agent ${request.agentId}.`);
   await removeExistingAgentContainers(request.agentId, request.deploymentId);
 
-  if (!["sidekicks-native", "openclaw-upstream"].includes(deployment.runtime_adapter)) {
+  if (!["sidekicks-native", "openclaw-upstream", "nemoclaw"].includes(deployment.runtime_adapter)) {
     log("skipping deploy for unsupported template", {
       deploymentId: request.deploymentId,
       templateId: deployment.template_id,
@@ -681,19 +711,43 @@ async function deployRuntime(request) {
     await stopAndRemoveContainer(deployment.container_id);
   }
 
-  const started =
-    deployment.runtime_adapter === "openclaw-upstream"
-      ? await createRenderedRuntimeContainer(deployment, request.agentId)
-      : await createNativeRuntimeContainer(deployment, request.agentId);
+  let started = null;
+
+  if (deployment.runtime_adapter === "nemoclaw") {
+    const renderedLaunch = parseJson(deployment.rendered_launch) || {};
+    const build = renderedLaunch?.metadata?.build || {};
+
+    if (!build?.remote) {
+      await failDeployment(request.deploymentId, new Error("Missing NemoClaw build configuration."));
+      return;
+    }
+
+    await appendDeploymentLog(request.deploymentId, "info", `Building NemoClaw image ${deployment.image}.`);
+    await buildImageFromRemote({
+      image: deployment.image,
+      remote: build.remote,
+      dockerfile: build.dockerfile || "Dockerfile",
+      buildArgs: build.buildArgs || {}
+    });
+
+    started = await createRenderedRuntimeContainer(deployment, request.agentId, {
+      skipPull: true,
+      hostPort: "18789"
+    });
+  } else if (deployment.runtime_adapter === "openclaw-upstream") {
+    started = await createRenderedRuntimeContainer(deployment, request.agentId);
+  } else {
+    started = await createNativeRuntimeContainer(deployment, request.agentId);
+  }
   const container = docker.getContainer(started.containerId);
   await appendDeploymentLog(request.deploymentId, "info", `Waiting for runtime health at ${started.endpoint}.`);
   const healthy =
-    deployment.runtime_adapter === "openclaw-upstream"
+    deployment.runtime_adapter === "openclaw-upstream" || deployment.runtime_adapter === "nemoclaw"
       ? await waitForUpstreamOpenClaw(container, started.endpoint, request.deploymentId)
       : await waitForNativeRuntime(container);
   const now = new Date().toISOString();
   const runtimeAuth =
-    healthy && deployment.runtime_adapter === "openclaw-upstream"
+    healthy && (deployment.runtime_adapter === "openclaw-upstream" || deployment.runtime_adapter === "nemoclaw")
       ? await waitForOpenClawRuntimeAuth(
           container,
           parseJson(deployment.rendered_launch),
@@ -701,7 +755,7 @@ async function deployRuntime(request) {
         )
       : null;
 
-  if (healthy && deployment.runtime_adapter === "openclaw-upstream" && !runtimeAuth?.token) {
+  if (healthy && (deployment.runtime_adapter === "openclaw-upstream" || deployment.runtime_adapter === "nemoclaw") && !runtimeAuth?.token) {
     await appendDeploymentLog(request.deploymentId, "warn", "OpenClaw became healthy but runtime auth token was not extracted.");
   }
 
@@ -711,7 +765,7 @@ async function deployRuntime(request) {
 
   let finalEndpoint = started.endpoint;
 
-  if (deployment.runtime_adapter === "openclaw-upstream") {
+  if (deployment.runtime_adapter === "openclaw-upstream" || deployment.runtime_adapter === "nemoclaw") {
     try {
       const inspection = await container.inspect();
       const bindings = inspection?.NetworkSettings?.Ports?.["18789/tcp"] || [];
@@ -726,8 +780,10 @@ async function deployRuntime(request) {
     }
   }
 
+  const requiresAuth = deployment.runtime_adapter === "openclaw-upstream" || deployment.runtime_adapter === "nemoclaw";
+
   await markDeploymentStatus(request.deploymentId, {
-    status: healthy && (deployment.runtime_adapter !== "openclaw-upstream" || runtimeAuth?.token) ? "healthy" : "failed",
+    status: healthy && (!requiresAuth || runtimeAuth?.token) ? "healthy" : "failed",
     containerId: started.containerId,
     endpoint: finalEndpoint,
     updatedAt: now,
@@ -749,8 +805,8 @@ async function deployRuntime(request) {
   });
   await appendDeploymentLog(
     request.deploymentId,
-    healthy && (deployment.runtime_adapter !== "openclaw-upstream" || runtimeAuth?.token) ? "info" : "warn",
-    healthy && (deployment.runtime_adapter !== "openclaw-upstream" || runtimeAuth?.token)
+    healthy && (!requiresAuth || runtimeAuth?.token) ? "info" : "warn",
+    healthy && (!requiresAuth || runtimeAuth?.token)
       ? `Deployment became healthy at ${finalEndpoint}.`
       : healthy
         ? `Deployment reached health at ${finalEndpoint} but auth extraction failed.`

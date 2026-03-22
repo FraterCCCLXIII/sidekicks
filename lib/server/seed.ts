@@ -130,7 +130,7 @@ const templates: AgentTemplate[] = [
     id: "tpl_nemoclaw",
     slug: "nemoclaw",
     name: "NemoClaw",
-    description: "NVIDIA NeMo-powered agent runtime for GPU-accelerated orchestration and tool use.",
+    description: "NVIDIA NeMo-powered OpenClaw gateway runtime with GPU-accelerated orchestration.",
     icon: "Rocket",
     kind: "runtime",
     category: "Agents",
@@ -138,24 +138,24 @@ const templates: AgentTemplate[] = [
     packageName: "nvidia/nemoclaw",
     packageVersion: "latest",
     sourceRepo: "github.com/NVIDIA/NemoClaw",
-    runtimeImage: "sidekicks-runtime-nemoclaw:latest",
-    runtimeAdapter: "sidekicks-native",
+    runtimeImage: "sidekicks-runtime-nemoclaw",
+    runtimeAdapter: "nemoclaw",
     isolationMode: "container",
     supportedTools: ["web", "browser", "files"],
-    defaultModel: "GPT-4o",
+    defaultModel: "nvidia/nemotron-3-super-120b-a12b",
     defaultMemory: "redis",
     runtimeType: "python",
     deploymentConfig: {
       recommendedConcurrency: 1,
       artifactStrategy: "gateway-managed",
       workerQueue: "sidekicks-runs",
-      startupCommand: "docker build -t nemoclaws ."
+      startupCommand: "/usr/local/bin/nemoclaw-start"
     },
     featured: false,
     exampleUseCases: ["GPU-accelerated agent workflows", "NeMo-powered orchestration", "High-throughput automation"],
     configSchema: {
       env: [
-        { key: "NEMO_API_KEY", required: false, description: "Optional NVIDIA NeMo API key." }
+        { key: "NVIDIA_API_KEY", required: true, description: "NVIDIA API key for NeMo-powered models." }
       ]
     }
   }

@@ -387,7 +387,8 @@ function appendLog(run, message, level = "info") {
 }
 
 
-async function invokeOpenClawUpstreamRun(request, deployment, job) {
+async function invokeOpenClawUpstreamRun(request, deployment, job, runtimeLabel = "OpenClaw upstream") {
+  const runtimeSlug = runtimeLabel.toLowerCase().replace(/\s+/g, "-");
   const token = deployment?.runtime_auth?.token;
   const endpoint = openClawGatewayEndpointForDeployment(deployment?.id ?? "unknown");
   // Keep Sidekicks chat in OpenClaw's `main` session, but isolate runs so they
@@ -482,11 +483,11 @@ async function invokeOpenClawUpstreamRun(request, deployment, job) {
 
   return {
     summary: assistantReply
-      ? `OpenClaw upstream completed the run for ${request.agentName}.`
-      : `OpenClaw upstream accepted the run for ${request.agentName}, but no reply was observed yet.`,
+      ? `${runtimeLabel} completed the run for ${request.agentName}.`
+      : `${runtimeLabel} accepted the run for ${request.agentName}, but no reply was observed yet.`,
     markdown: `# ${job.title}
 
-OpenClaw upstream accepted authenticated gateway RPC calls for this run using the real connect + chat.history + chat.send flow.
+${runtimeLabel} accepted authenticated gateway RPC calls for this run using the real connect + chat.history + chat.send flow.
 
 Prompt: ${job.input.prompt}
 
@@ -498,12 +499,12 @@ ${assistantReply ?? "(no reply observed yet)"}`,
       assistantReply ? 'Captured the assistant reply via chat.history polling' : 'Captured the upstream gateway acknowledgement into the run bundle'
     ],
     artifacts: [
-      { name: `${slugifyTitle(job.title || "openclaw-upstream")}.md`, type: 'markdown', body: `# ${job.title}
+      { name: `${slugifyTitle(job.title || runtimeSlug)}.md`, type: 'markdown', body: `# ${job.title}
 
 Prompt: ${job.input.prompt}
 
 Reply: ${assistantReply ?? "(no reply observed yet)"}` },
-      { name: `${slugifyTitle(job.title || "openclaw-upstream")}.json`, type: 'dataset', body: summaryBody }
+      { name: `${slugifyTitle(job.title || runtimeSlug)}.json`, type: 'dataset', body: summaryBody }
     ]
   };
 }
@@ -513,8 +514,9 @@ async function invokeRuntimeRun(request, deployment, job) {
     return null;
   }
 
-  if (deployment.runtime_adapter === "openclaw-upstream") {
-    return invokeOpenClawUpstreamRun(request, deployment, job);
+  if (deployment.runtime_adapter === "openclaw-upstream" || deployment.runtime_adapter === "nemoclaw") {
+    const label = deployment.runtime_adapter === "nemoclaw" ? "NemoClaw" : "OpenClaw upstream";
+    return invokeOpenClawUpstreamRun(request, deployment, job, label);
   }
 
   const response = await fetch(`${deployment.endpoint}/runs`, {

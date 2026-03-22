@@ -400,25 +400,35 @@ function buildInitialSteps(): RunStep[] {
   ];
 }
 
+function withDeploymentTag(image: string, tag: string) {
+  const lastColon = image.lastIndexOf(":");
+  const lastSlash = image.lastIndexOf("/");
+  const base = lastColon > lastSlash ? image.slice(0, lastColon) : image;
+  return `${base}:${tag}`;
+}
+
 function buildDefaultDeployment(agent: AgentInstance, template: AgentTemplate, now: string): AgentDeployment {
-  const isDedicatedRuntime = template.runtimeAdapter === "sidekicks-native" && (template.id === "tpl_openclaw" || template.id === "tpl_nanoclaw");
-  const isUpstreamOpenClaw = template.runtimeAdapter === "openclaw-upstream";
+  const isDedicatedRuntime =
+    template.runtimeAdapter === "sidekicks-native" && (template.id === "tpl_openclaw" || template.id === "tpl_nanoclaw");
+  const isRenderedAdapter = template.runtimeAdapter === "openclaw-upstream" || template.runtimeAdapter === "nemoclaw";
+  const deploymentId = createId("dep");
+  const image = template.runtimeAdapter === "nemoclaw" ? withDeploymentTag(template.runtimeImage, deploymentId) : template.runtimeImage;
 
   return {
-    id: createId("dep"),
+    id: deploymentId,
     agentId: agent.id,
     templateId: template.id,
-    image: template.runtimeImage,
+    image,
     runtimeAdapter: template.runtimeAdapter,
     containerId: null,
-    endpoint: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
-    runtimeSource: isDedicatedRuntime || isUpstreamOpenClaw ? "container" : template.runtimeType === "node" ? "local-service" : "container",
-    status: isDedicatedRuntime || isUpstreamOpenClaw ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
+    endpoint: isDedicatedRuntime || isRenderedAdapter ? null : template.runtimeType === "node" ? getDefaultNodeRuntimeEndpoint() : null,
+    runtimeSource: isDedicatedRuntime || isRenderedAdapter ? "container" : template.runtimeType === "node" ? "local-service" : "container",
+    status: isDedicatedRuntime || isRenderedAdapter ? "provisioning" : template.runtimeType === "node" ? "healthy" : "provisioning",
     renderedLaunch: null,
     runtimeAuth: null,
     createdAt: now,
     updatedAt: now,
-    lastHealthAt: isDedicatedRuntime || isUpstreamOpenClaw ? null : template.runtimeType === "node" ? now : null
+    lastHealthAt: isDedicatedRuntime || isRenderedAdapter ? null : template.runtimeType === "node" ? now : null
   };
 }
 
@@ -1409,7 +1419,11 @@ export async function createPostgresChatExchange(agentId: string, content: strin
 
     let assistantContent = `No deployment is available for ${agent.name}.`;
 
-    if (deployment?.runtimeAdapter === "openclaw-upstream" && deployment.endpoint && deployment.runtimeAuth?.token) {
+    if (
+      (deployment?.runtimeAdapter === "openclaw-upstream" || deployment?.runtimeAdapter === "nemoclaw") &&
+      deployment.endpoint &&
+      deployment.runtimeAuth?.token
+    ) {
       assistantContent = await sendOpenClawUpstreamChat({
         endpoint: openClawGatewayEndpointForDeployment(deployment.id),
         token: deployment.runtimeAuth.token,

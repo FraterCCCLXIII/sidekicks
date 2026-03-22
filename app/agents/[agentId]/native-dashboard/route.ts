@@ -24,7 +24,7 @@ export async function GET(
   }
 
   if (
-    deployment.runtimeAdapter !== "openclaw-upstream" ||
+    (deployment.runtimeAdapter !== "openclaw-upstream" && deployment.runtimeAdapter !== "nemoclaw") ||
     !deployment.endpoint ||
     !deployment.runtimeAuth?.token
   ) {

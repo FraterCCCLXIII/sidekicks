@@ -19,7 +19,7 @@ export type WorkerRuntimeStatus = "online" | "offline" | "degraded";
 export type ArtifactType = "report" | "build" | "dataset" | "markdown" | "log" | "app";
 export type DeploymentStatus = "provisioning" | "healthy" | "degraded" | "stopped" | "failed";
 export type ChatRole = "user" | "assistant" | "system";
-export type RuntimeAdapter = "sidekicks-native" | "openclaw-upstream";
+export type RuntimeAdapter = "sidekicks-native" | "openclaw-upstream" | "nemoclaw";
 
 export type AgentEnvVar = {
   key: string;
@@ -161,7 +161,7 @@ export type RenderedRuntimeLaunch = {
   env: AgentEnvVar[];
   files: RenderedRuntimeFile[];
   command: string[] | null;
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 };
 
 export type DeploymentRuntimeAuth = {

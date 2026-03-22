@@ -207,7 +207,7 @@ function maskEnvValue(key: string, value: string) {
 
 function presentDeployment(deployment: AgentDeployment, agentId?: string): DeploymentView {
   const nativeDashboardUrl =
-    deployment.runtimeAdapter === "openclaw-upstream" && agentId
+    (deployment.runtimeAdapter === "openclaw-upstream" || deployment.runtimeAdapter === "nemoclaw") && agentId
       ? `/agents/${agentId}/native-dashboard`
       : null;
 

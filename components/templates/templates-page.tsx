@@ -1,6 +1,6 @@
 "use client";
 
-import { FileSearch, Search } from "lucide-react";
+import { FileSearch, Rocket, Search } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -13,7 +13,7 @@ import { type TemplateListItemView } from "@/lib/server/presenters";
 
 const templateIcons: Record<string, typeof FileSearch> = {
   "OpenClaw Upstream": FileSearch,
-  NemoClaw: FileSearch
+  NemoClaw: Rocket
 };
 
 function TemplateCard({ template }: { template: TemplateListItemView }) {
