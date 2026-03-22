@@ -312,9 +312,18 @@ async function extractOpenClawRuntimeAuth(container, renderedLaunch) {
 }
 
 async function probeContainerHttp(container, path, timeoutMs = 2000, port = 18789) {
-  const script = `const ac=new AbortController();const t=setTimeout(()=>ac.abort(),${timeoutMs});fetch('http://127.0.0.1:${port}${path}',{signal:ac.signal}).then((r)=>{clearTimeout(t);process.exit(r.ok?0:1)}).catch(()=>process.exit(1));`;
+  const nodeScript = `const ac=new AbortController();const t=setTimeout(()=>ac.abort(),${timeoutMs});fetch('http://127.0.0.1:${port}${path}',{signal:ac.signal}).then((r)=>{clearTimeout(t);process.exit(r.ok?0:1)}).catch(()=>process.exit(1));`;
+  const pythonScript = [
+    "import sys, urllib.request",
+    "try:",
+    `  with urllib.request.urlopen('http://127.0.0.1:${port}${path}', timeout=${Math.ceil(timeoutMs / 1000)}) as r:`,
+    "    sys.exit(0 if 200 <= r.status < 400 else 1)",
+    "except Exception:",
+    "  sys.exit(1)"
+  ].join("\n");
+  const cmd = `command -v node >/dev/null 2>&1 && node -e ${JSON.stringify(nodeScript)} || python - <<'PY'\\n${pythonScript}\\nPY`;
   const exec = await container.exec({
-    Cmd: ["sh", "-lc", `node -e ${JSON.stringify(script)}`],
+    Cmd: ["sh", "-lc", cmd],
     AttachStdout: true,
     AttachStderr: true
   });
