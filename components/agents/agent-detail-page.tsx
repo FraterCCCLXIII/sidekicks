@@ -113,7 +113,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
       return;
     }
 
-    if (data.status === "running") {
+    if (data?.status === "running") {
       setPauseModalOpen(true);
       return;
     }
