@@ -12,7 +12,8 @@ import { useTemplates } from "@/hooks/use-sidekicks-data";
 import { type TemplateListItemView } from "@/lib/server/presenters";
 
 const templateIcons: Record<string, typeof FileSearch> = {
-  "OpenClaw Upstream": FileSearch
+  "OpenClaw Upstream": FileSearch,
+  NemoClaw: FileSearch
 };
 
 function TemplateCard({ template }: { template: TemplateListItemView }) {
@@ -81,7 +82,7 @@ export function TemplatesPage() {
           <Badge>Templates</Badge>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">Templates</h1>
           <p className="mt-2 max-w-2xl text-muted-foreground">
-            Deploy the single supported MVP runtime, inspect its upstream image metadata, and launch a managed OpenClaw instance.
+            Deploy supported runtimes, inspect upstream image metadata, and launch managed agent instances.
           </p>
         </div>
       </div>
@@ -90,7 +91,7 @@ export function TemplatesPage() {
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-11"
-          placeholder="Search the OpenClaw MVP template"
+          placeholder="Search templates"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />

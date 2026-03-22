@@ -125,6 +125,39 @@ const templates: AgentTemplate[] = [
         { key: "ANTHROPIC_BASE_URL", required: false, description: "Optional Anthropic-compatible base URL." }
       ]
     }
+  },
+  {
+    id: "tpl_nemoclaw",
+    slug: "nemoclaw",
+    name: "NemoClaw",
+    description: "NVIDIA NeMo-powered agent runtime for GPU-accelerated orchestration and tool use.",
+    icon: "Rocket",
+    kind: "runtime",
+    category: "Agents",
+    tags: ["NemoClaw", "NVIDIA", "NeMo", "GPU"],
+    packageName: "nvidia/nemoclaw",
+    packageVersion: "latest",
+    sourceRepo: "github.com/NVIDIA/NemoClaw",
+    runtimeImage: "sidekicks-runtime-nemoclaw:latest",
+    runtimeAdapter: "sidekicks-native",
+    isolationMode: "container",
+    supportedTools: ["web", "browser", "files"],
+    defaultModel: "GPT-4o",
+    defaultMemory: "redis",
+    runtimeType: "python",
+    deploymentConfig: {
+      recommendedConcurrency: 1,
+      artifactStrategy: "gateway-managed",
+      workerQueue: "sidekicks-runs",
+      startupCommand: "docker build -t nemoclaws ."
+    },
+    featured: false,
+    exampleUseCases: ["GPU-accelerated agent workflows", "NeMo-powered orchestration", "High-throughput automation"],
+    configSchema: {
+      env: [
+        { key: "NEMO_API_KEY", required: false, description: "Optional NVIDIA NeMo API key." }
+      ]
+    }
   }
 ];
 

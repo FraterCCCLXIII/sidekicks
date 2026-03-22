@@ -11,6 +11,7 @@ import { useTemplate } from "@/hooks/use-sidekicks-data";
 const templateIcons: Record<string, typeof FileSearch> = {
   OpenClaw: FileSearch,
   NanoClaw: Cpu,
+  NemoClaw: Rocket,
   AppClaw: Code2,
   MarketingClaw: WandSparkles,
   DataClaw: Box
