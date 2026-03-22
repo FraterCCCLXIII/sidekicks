@@ -149,37 +149,14 @@ function buildOpenClawLaunch({
   };
 }
 
-function buildNemoClawChatUiUrl() {
-  const rawUrl = process.env.NEXT_PUBLIC_APP_URL;
-
-  if (!rawUrl) {
-    return "http://127.0.0.1:18789";
-  }
-
-  try {
-    const parsed = new URL(rawUrl);
-    return `http://${parsed.hostname}:18789`;
-  } catch {
-    return "http://127.0.0.1:18789";
-  }
-}
-
 function buildNemoClawLaunch({
   agent,
-  template,
-  settings,
   deployment
 }: {
   agent: AgentInstance;
-  template: AgentTemplate;
-  settings: SettingsData;
   deployment: Pick<AgentDeployment, "id" | "runtimeAdapter">;
 }): RenderedRuntimeLaunch {
-  const chatUiUrl = buildNemoClawChatUiUrl();
-  const env = [
-    ...agent.envVars.filter((entry) => entry?.key),
-    ...(agent.envVars.some((entry) => entry.key === "CHAT_UI_URL") ? [] : [{ key: "CHAT_UI_URL", value: chatUiUrl }])
-  ];
+  const env = agent.envVars.filter((entry) => entry?.key);
 
   return {
     env,
@@ -194,7 +171,6 @@ function buildNemoClawLaunch({
         dockerfile: "Dockerfile",
         buildArgs: {
           NEMOCLAW_MODEL: agent.model,
-          CHAT_UI_URL: chatUiUrl,
           NEMOCLAW_BUILD_ID: deployment.id
         }
       }
@@ -220,7 +196,7 @@ export function renderRuntimeLaunch({
   }
 
   if (deployment.runtimeAdapter === "nemoclaw") {
-    return buildNemoClawLaunch({ agent, template, settings, deployment });
+    return buildNemoClawLaunch({ agent, deployment });
   }
 
   return null;

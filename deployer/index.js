@@ -66,6 +66,35 @@ function sleep(ms) {
   });
 }
 
+function resolveChatUiHost() {
+  const rawUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+  if (!rawUrl) {
+    return "127.0.0.1";
+  }
+
+  try {
+    return new URL(rawUrl).hostname || "127.0.0.1";
+  } catch {
+    return "127.0.0.1";
+  }
+}
+
+function resolveChatUiUrl(port) {
+  const host = resolveChatUiHost();
+  return `http://${host}:${port}`;
+}
+
+function hashString(input) {
+  let hash = 0;
+
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 31 + input.charCodeAt(index)) | 0;
+  }
+
+  return Math.abs(hash);
+}
+
 async function removeExistingAgentContainers(agentId, deploymentId) {
   try {
     const containers = await docker.listContainers({
@@ -176,6 +205,39 @@ async function pullImage(image) {
   });
 
   log("image pulled", { image });
+}
+
+async function listUsedHostPorts() {
+  const containers = await docker.listContainers({ all: true });
+  const used = new Set();
+
+  for (const info of containers) {
+    const ports = Array.isArray(info.Ports) ? info.Ports : [];
+
+    for (const port of ports) {
+      if (port && typeof port.PublicPort === "number") {
+        used.add(port.PublicPort);
+      }
+    }
+  }
+
+  return used;
+}
+
+function selectNemoClawPort(usedPorts, deploymentId) {
+  const base = 18800;
+  const range = 200;
+  const seed = hashString(deploymentId);
+
+  for (let offset = 0; offset < range; offset += 1) {
+    const candidate = base + ((seed + offset) % range);
+
+    if (!usedPorts.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error("No available NemoClaw ports in the configured range.");
 }
 
 async function buildImageFromRemote({ image, remote, dockerfile, buildArgs }) {
@@ -722,18 +784,28 @@ async function deployRuntime(request) {
       return;
     }
 
+    const usedPorts = await listUsedHostPorts();
+    const hostPort = selectNemoClawPort(usedPorts, deployment.id);
+    const chatUiUrl = resolveChatUiUrl(hostPort);
+    const buildArgs = {
+      ...(build.buildArgs || {}),
+      CHAT_UI_URL: chatUiUrl,
+      NEMOCLAW_BUILD_ID: deployment.id
+    };
+
     await appendDeploymentLog(request.deploymentId, "info", `Building NemoClaw image ${deployment.image}.`);
     await buildImageFromRemote({
       image: deployment.image,
       remote: build.remote,
       dockerfile: build.dockerfile || "Dockerfile",
-      buildArgs: build.buildArgs || {}
+      buildArgs
     });
 
     started = await createRenderedRuntimeContainer(deployment, request.agentId, {
       skipPull: true,
-      hostPort: "18789"
+      hostPort: String(hostPort)
     });
+    started.endpoint = `http://127.0.0.1:${hostPort}`;
   } else if (deployment.runtime_adapter === "openclaw-upstream") {
     started = await createRenderedRuntimeContainer(deployment, request.agentId);
   } else {
