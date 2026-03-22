@@ -1,7 +1,11 @@
 export type BackendMode = "memory" | "postgres";
 
 export function getBackendMode(): BackendMode {
-  return process.env.SIDEKICKS_BACKEND === "postgres" ? "postgres" : "memory";
+  if (process.env.SIDEKICKS_BACKEND !== "postgres") {
+    throw new Error('SIDEKICKS_BACKEND must be set to "postgres". In-memory mode is disabled.');
+  }
+
+  return "postgres";
 }
 
 export function isPostgresBackend() {
@@ -12,7 +16,7 @@ export function getDatabaseUrl() {
   const url = process.env.DATABASE_URL;
 
   if (!url) {
-    throw new Error("DATABASE_URL is required when SIDEKICKS_BACKEND=postgres");
+    throw new Error('DATABASE_URL is required when SIDEKICKS_BACKEND="postgres"');
   }
 
   return url;

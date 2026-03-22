@@ -10,7 +10,7 @@ const { Pool } = require("pg");
 const { callOpenClawGateway } = require("./openclaw-gateway-client");
 
 const config = {
-  backend: process.env.SIDEKICKS_BACKEND || "memory",
+  backend: process.env.SIDEKICKS_BACKEND,
   role: "execution-plane-worker",
   runtime: process.env.WORKER_RUNTIME || "node",
   queue: process.env.WORKER_QUEUE || "sidekicks-runs",
@@ -33,6 +33,12 @@ function log(message, extra) {
   };
 
   console.log(JSON.stringify(payload));
+}
+
+function assertPostgresBackend() {
+  if (config.backend !== "postgres") {
+    throw new Error('SIDEKICKS_BACKEND must be set to "postgres". In-memory mode is disabled.');
+  }
 }
 
 function sleep(ms) {
@@ -739,22 +745,8 @@ async function processRunExecution(request) {
 }
 
 async function startWorker() {
+  assertPostgresBackend();
   log("worker booting", config);
-
-  if (config.backend !== "postgres") {
-    log("worker idle", {
-      note: "SIDEKICKS_BACKEND is not set to postgres, so queued execution stays in the in-memory control plane."
-    });
-
-    setInterval(() => {
-      log("worker heartbeat", {
-        mode: config.backend,
-        queue: config.queue
-      });
-    }, 15000);
-
-    return;
-  }
 
   const worker = new Worker(
     config.queue,
